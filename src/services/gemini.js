@@ -18,7 +18,7 @@ async function generateWithRetry(model, prompt, retries = 0) {
     }
 }
 
-export async function generateGeminiRecommendation(apiKey, allyTeam, enemyTeam, availableChampions) {
+export async function generateGeminiRecommendation(apiKey, allyTeam, enemyTeam, availableChampions, userRole) {
     const genAI = new GoogleGenerativeAI(apiKey);
 
     // Usamos directamente el modelo solicitado por el usuario para máxima velocidad
@@ -28,6 +28,10 @@ export async function generateGeminiRecommendation(apiKey, allyTeam, enemyTeam, 
     const allies = allyTeam.map(c => c.name).join(", ");
     const enemies = enemyTeam.map(c => c.name).join(", ");
 
+    const roleInstruction = userRole
+        ? `IMPORTANTE: El usuario VA A JUGAR ROL: ${userRole}. Recomienda el MEJOR campeón para este rol específico.`
+        : "Recomienda UN solo campeón óptimo para completar el equipo aliado.";
+
     const prompt = `
       Actúa como un Coach de élite de League of Legends (Challenger).
       
@@ -36,7 +40,7 @@ export async function generateGeminiRecommendation(apiKey, allyTeam, enemyTeam, 
       - Equipo Enemigo: [${enemies}]
       
       Tarea:
-      Recomienda UN solo campeón óptimo para completar el equipo aliado.
+      ${roleInstruction}
       IMPORTANTE: Todos los textos explicativos (razón, estrategia, condición de victoria) deben estar en ESPAÑOL.
       
       Responde SOLO con un objeto JSON válido con esta estructura exacta:

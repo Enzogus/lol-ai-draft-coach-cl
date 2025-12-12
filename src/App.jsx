@@ -8,8 +8,20 @@ export default function App() {
   const [showMobileRecs, setShowMobileRecs] = useState(false);
   // Estado para acordeón móvil ('ally' | 'enemy' | null). Inicialmente 'ally' abierto.
   const [mobileActiveSection, setMobileActiveSection] = useState('ally');
+  // Rol del usuario (Top, Jungle, Mid, ADC, Support)
+  const [userRole, setUserRole] = useState(null);
+
+  const ROLES = [
+    { id: 'Top', label: 'Top', icon: '🛡️' },
+    { id: 'Jungle', label: 'Jungle', icon: '🌲' },
+    { id: 'Mid', label: 'Mid', icon: '🔮' },
+    { id: 'ADC', label: 'ADC', icon: '🏹' },
+    { id: 'Support', label: 'Support', icon: '🤝' },
+  ];
 
   return (
+
+
     <div className="flex flex-col md:flex-row h-screen w-full bg-black overflow-hidden md:overflow-hidden relative">
 
 
@@ -29,7 +41,7 @@ export default function App() {
             </button>
           </div>
           <div className="flex-1 overflow-hidden">
-            <RecommendationPanel allyTeam={allyTeam} enemyTeam={enemyTeam} />
+            <RecommendationPanel allyTeam={allyTeam} enemyTeam={enemyTeam} userRole={userRole} onRoleChange={setUserRole} />
           </div>
         </div>
       )}
@@ -48,8 +60,8 @@ export default function App() {
       </div>
 
       {/* Centro: Recomendador (Desktop: Visible | Mobile: Hidden) */}
-      <div className="hidden md:block w-full md:w-1/3 h-full bg-gray-900 border-x border-gray-800 relative z-10 shadow-2xl">
-        <RecommendationPanel allyTeam={allyTeam} enemyTeam={enemyTeam} />
+      <div className="hidden md:block w-full md:w-1/3 h-full bg-gray-900 border-x border-gray-800 relative z-10 shadow-2xl pt-16">
+        <RecommendationPanel allyTeam={allyTeam} enemyTeam={enemyTeam} userRole={userRole} onRoleChange={setUserRole} />
       </div>
 
       {/* Lado Derecho: Enemigos (Accordion Prop) */}

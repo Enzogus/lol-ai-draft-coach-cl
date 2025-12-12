@@ -5,7 +5,14 @@ import { generateGeminiRecommendation } from '../services/gemini';
 import { TeamRadar } from './TeamRadar';
 import { calculateTeamStats } from '../utils/teamStats';
 
-export function RecommendationPanel({ allyTeam, enemyTeam }) {
+export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChange }) {
+    const ROLES = [
+        { id: 'Top', label: 'Top', icon: '🛡️' },
+        { id: 'Jungle', label: 'Jungle', icon: '🌲' },
+        { id: 'Mid', label: 'Mid', icon: '🔮' },
+        { id: 'ADC', label: 'ADC', icon: '🏹' },
+        { id: 'Support', label: 'Support', icon: '🤝' },
+    ];
     const { champions } = useChampions();
     // Leer API Key desde variable de entorno (seguro para deploy)
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
@@ -20,15 +27,29 @@ export function RecommendationPanel({ allyTeam, enemyTeam }) {
         setAiResult(null);
 
         try {
-            const recommendation = await generateGeminiRecommendation(apiKey, allyTeam, enemyTeam, champions);
-            // Buscar imagen del campeón recomendado
-            const champData = champions.find(c => c.name.toLowerCase() === recommendation.championName.toLowerCase());
+            const recommendation = await generateGeminiRecommendation(apiKey, allyTeam, enemyTeam, champions, userRole);
+
+            // Función helper para normalizar nombres (quitar espacios, comillas, etc)
+            const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, '');
+            const targetName = normalize(recommendation.championName);
+
+            // Búsqueda robusta: Intentar coincidir por Name o ID (ej: "Wukong" vs "MonkeyKing")
+            const champData = champions.find(c =>
+                normalize(c.name) === targetName ||
+                normalize(c.id) === targetName ||
+                c.name.toLowerCase().includes(recommendation.championName.toLowerCase()) // Fallback laxo
+            );
 
             // Si encontramos el campeón en nuestros datos actualizados, usamos su imagen pre-calculada
-            // Si no (raro), intentamos construirla con una versión fallback o dejamos que falle
+            // Si no, intentamos construirla asumiendo que el nombre de la IA es el ID (arriesgado pero mejor que nada)
             let finalImage = null;
             if (champData) {
                 finalImage = champData.imageUrl;
+            } else {
+                // Fallback extremo: Usar el nombre que nos dio la IA limpiado
+                // Ej: "Lee Sin" -> "LeeSin.png"
+                const guessId = recommendation.championName.replace(/[^a-zA-Z0-9]/g, '');
+                finalImage = `https://ddragon.leagueoflegends.com/cdn/img/champion/loading/${guessId}_0.jpg`; // Intentamos loading art que a veces perdona más
             }
 
             setAiResult({ ...recommendation, imageId: champData ? champData.id : null, imageUrl: finalImage });
@@ -38,6 +59,18 @@ export function RecommendationPanel({ allyTeam, enemyTeam }) {
             setAiLoading(false);
         }
     };
+
+    // Efecto para Auto-Consulta con Debounce
+    useEffect(() => {
+        // Solo activar si hay un rol seleccionado y al menos un campeón en juego
+        if (!userRole || (allyTeam.length === 0 && enemyTeam.length === 0)) return;
+
+        const timer = setTimeout(() => {
+            handleAiConsult();
+        }, 1500); // 1.5s debounce
+
+        return () => clearTimeout(timer);
+    }, [allyTeam, enemyTeam, userRole]);
 
     // Calcular recomendaciones algorítmicas clásicas
     const recommendations = useMemo(() => {
@@ -72,17 +105,40 @@ export function RecommendationPanel({ allyTeam, enemyTeam }) {
                 {/* Sección IA */}
                 <div className="mb-6 p-4 rounded-xl bg-gradient-to-br from-indigo-900 to-purple-900 border border-indigo-500 shadow-lg relative overflow-hidden">
                     <div className="relative z-10">
-                        <div className="flex justify-between items-center mb-3">
-                            <h3 className="text-white font-bold text-lg flex items-center gap-2">
-                                🔮 Coach Gemini AI
-                            </h3>
-                            {!aiLoading && !aiResult && (
-                                <button
-                                    onClick={handleAiConsult}
-                                    className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 rounded-full text-sm font-bold transition-all shadow-lg hover:shadow-purple-500/50"
-                                >
-                                    Consultar
-                                </button>
+                        <div className="flex flex-col gap-3 mb-3">
+                            <div className="flex justify-between items-start">
+                                <h3 className="text-white font-bold text-lg flex items-center gap-2">
+                                    🔮 Coach Gemini AI
+                                </h3>
+                                {!aiLoading && !aiResult && (
+                                    <button
+                                        onClick={handleAiConsult}
+                                        className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 rounded-full text-sm font-bold transition-all shadow-lg hover:shadow-purple-500/50"
+                                    >
+                                        Consultar
+                                    </button>
+                                )}
+                            </div>
+                            <h4 className="text-white text-lg flex items-center justify-center gap-2">
+                                Selecciona tu rol
+                            </h4>
+
+                            {/* Selector de Rol en Panel */}
+                            {onRoleChange && (
+                                <div className="flex gap-1 justify-between bg-black/20 p-1 rounded-lg">
+                                    {ROLES.map(role => (
+                                        <button
+                                            key={role.id}
+                                            onClick={() => onRoleChange(role.id === userRole ? null : role.id)}
+                                            className={`p-1.5 rounded-lg transition-all flex-1 flex justify-center items-center ${userRole === role.id
+                                                ? 'bg-purple-500 text-white shadow-lg scale-105 ring-1 ring-purple-300'
+                                                : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'}`}
+                                            title={role.label}
+                                        >
+                                            <span className="text-lg">{role.icon}</span>
+                                        </button>
+                                    ))}
+                                </div>
                             )}
                         </div>
 
