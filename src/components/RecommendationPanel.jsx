@@ -19,9 +19,17 @@ export function RecommendationPanel({ allyTeam, enemyTeam }) {
 
         try {
             const recommendation = await generateGeminiRecommendation(apiKey, allyTeam, enemyTeam, champions);
-            // Buscar imagen del campeón recomendado para mostrarla
+            // Buscar imagen del campeón recomendado
             const champData = champions.find(c => c.name.toLowerCase() === recommendation.championName.toLowerCase());
-            setAiResult({ ...recommendation, imageId: champData ? champData.id : null });
+
+            // Si encontramos el campeón en nuestros datos actualizados, usamos su imagen pre-calculada
+            // Si no (raro), intentamos construirla con una versión fallback o dejamos que falle
+            let finalImage = null;
+            if (champData) {
+                finalImage = champData.imageUrl;
+            }
+
+            setAiResult({ ...recommendation, imageId: champData ? champData.id : null, imageUrl: finalImage });
         } catch (err) {
             setAiError(err.message);
         } finally {
@@ -96,9 +104,9 @@ export function RecommendationPanel({ allyTeam, enemyTeam }) {
                         {aiResult && (
                             <div className="animate-fade-in mt-2">
                                 <div className="flex items-center gap-4 mb-3">
-                                    {aiResult.imageId ? (
+                                    {aiResult.imageUrl ? (
                                         <img
-                                            src={`https://ddragon.leagueoflegends.com/cdn/13.24.1/img/champion/${aiResult.imageId}.png`}
+                                            src={aiResult.imageUrl}
                                             alt={aiResult.championName}
                                             className="w-16 h-16 rounded-full border-2 border-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.5)]"
                                         />
@@ -150,7 +158,7 @@ export function RecommendationPanel({ allyTeam, enemyTeam }) {
                         <div className="flex items-start gap-3">
                             <div className="relative">
                                 <img
-                                    src={`https://ddragon.leagueoflegends.com/cdn/13.24.1/img/champion/${rec.champion.id}.png`}
+                                    src={rec.champion.imageUrl}
                                     alt={rec.champion.name}
                                     className="w-12 h-12 rounded-full border border-gray-500 grayscale-[0.3]"
                                 />
