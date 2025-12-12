@@ -12,13 +12,7 @@ export default function App() {
   return (
     <div className="flex flex-col md:flex-row h-screen w-full bg-black overflow-hidden md:overflow-hidden relative">
 
-      {/* Botón Flotante para Móvil (Coach) */}
-      <button
-        onClick={() => setShowMobileRecs(true)}
-        className="md:hidden fixed bottom-6 right-6 z-50 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-full p-4 shadow-2xl border-2 border-purple-400 animate-pulse bg-opacity-90 active:scale-95 transition-transform"
-      >
-        <span className="text-2xl">🔮</span>
-      </button>
+
 
       {/* MODAL para Móvil */}
       {showMobileRecs && (
@@ -70,6 +64,39 @@ export default function App() {
           onToggle={() => setMobileActiveSection(mobileActiveSection === 'enemy' ? null : 'enemy')}
         />
       </div>
+
+      {/* Quick Actions (Solo Móvil - Visible cuando ambos acordeones están cerrados) */}
+      {mobileActiveSection === null && (
+        <div className="flex-1 flex flex-col items-center justify-center gap-6 p-6 animate-fade-in md:hidden bg-gradient-to-b from-gray-900 via-gray-900 to-black">
+
+          <div className="text-center space-y-2">
+            <h3 className="text-gray-400 font-medium">Draft Pausado</h3>
+            <p className="text-gray-500 text-sm">¿Qué deseas hacer?</p>
+          </div>
+
+          <button
+            onClick={() => setShowMobileRecs(true)}
+            className="w-full max-w-xs bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-lg font-bold py-5 px-8 rounded-2xl shadow-lg border border-purple-400/30 active:scale-95 transition-all flex items-center justify-center gap-3 group"
+          >
+            <span className="text-3xl group-hover:scale-110 transition-transform">🔮</span>
+            <span>Ver Coach IA</span>
+          </button>
+
+          <button
+            onClick={() => {
+              if (window.confirm('¿Estás seguro de reiniciar el draft?')) {
+                setAllyTeam([]);
+                setEnemyTeam([]);
+                setMobileActiveSection('ally');
+              }
+            }}
+            className="text-gray-400 hover:text-white hover:bg-white/5 py-3 px-6 rounded-xl transition-colors flex items-center gap-2"
+          >
+            <span>🗑️ Reiniciar Draft</span>
+          </button>
+
+        </div>
+      )}
     </div>
   );
 }
