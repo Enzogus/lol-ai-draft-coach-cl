@@ -74,7 +74,7 @@ export function ChampionSelector({ title, limit, selectedChampions, onSelect, si
             )}
 
             {/* Contenido (Buscador, Filtros, Slots, Grid) - Oculto si no activo en móvil, siempre visible en Desktop */}
-            <div className={`flex flex-col flex-1 overflow-hidden ${isActive ? 'block' : 'hidden'} md:block md:flex md:flex-col`}>
+            <div className={`flex flex-col flex-1 min-h-0 overflow-hidden ${isActive ? 'flex' : 'hidden'} md:flex`}>
                 {/* Buscador */}
                 <div className="mb-2">
                     <input

@@ -35,7 +35,7 @@ export default function App() {
       )}
 
       {/* Lado Izquierdo: Aliados (Accordion Prop: isActive solo afecta mobile) */}
-      <div className={`w-full md:w-1/3 border-b md:border-b-0 md:border-r border-gray-800 relative z-0 transition-all duration-300 ${mobileActiveSection === 'ally' ? 'flex-1' : 'h-auto'} md:h-full md:flex-1`}>
+      <div className={`flex flex-col overflow-hidden w-full md:w-1/3 border-b md:border-b-0 md:border-r border-gray-800 relative z-0 transition-all duration-300 ${mobileActiveSection === 'ally' ? 'flex-1' : 'h-auto'} md:h-full md:flex-1`}>
         <ChampionSelector
           title="Aliados"
           limit={4}
@@ -53,7 +53,7 @@ export default function App() {
       </div>
 
       {/* Lado Derecho: Enemigos (Accordion Prop) */}
-      <div className={`w-full md:w-1/3 md:border-l border-gray-800 relative z-0 transition-all duration-300 ${mobileActiveSection === 'enemy' ? 'flex-1' : 'h-auto'} md:h-full md:flex-1`}>
+      <div className={`flex flex-col overflow-hidden w-full md:w-1/3 md:border-l border-gray-800 relative z-0 transition-all duration-300 ${mobileActiveSection === 'enemy' ? 'flex-1' : 'h-auto'} md:h-full md:flex-1`}>
         <ChampionSelector
           title="Enemigos"
           limit={5}
