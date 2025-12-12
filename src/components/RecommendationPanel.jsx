@@ -2,6 +2,8 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { useChampions } from '../hooks/useChampions';
 import { getRecommendations } from '../utils/recommender';
 import { generateGeminiRecommendation } from '../services/gemini';
+import { TeamRadar } from './TeamRadar';
+import { calculateTeamStats } from '../utils/teamStats';
 
 export function RecommendationPanel({ allyTeam, enemyTeam }) {
     const { champions } = useChampions();
@@ -127,9 +129,58 @@ export function RecommendationPanel({ allyTeam, enemyTeam }) {
                                         </div>
                                     </div>
                                 </div>
+
+                                {/* Predicción de Victoria */}
+                                {aiResult.winPrediction && (
+                                    <div className="mb-3 bg-black/40 rounded p-2 border border-gray-700">
+                                        <div className="flex justify-between text-xs text-gray-300 mb-1">
+                                            <span>Probabilidad de Victoria</span>
+                                            <span className={`font-bold ${aiResult.winPrediction >= 60 ? 'text-green-400' : 'text-yellow-400'}`}>
+                                                {aiResult.winPrediction}%
+                                            </span>
+                                        </div>
+                                        <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+                                            <div
+                                                className={`h-full ${aiResult.winPrediction >= 60 ? 'bg-green-500' : 'bg-yellow-500'}`}
+                                                style={{ width: `${aiResult.winPrediction}%` }}
+                                            ></div>
+                                        </div>
+                                        <div className="text-[10px] text-gray-400 mt-1 italic leading-tight">
+                                            "{aiResult.winCondition}"
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div className="bg-black/20 p-3 rounded-lg text-sm text-purple-100 leading-relaxed mb-2">
                                     {aiResult.reason}
                                 </div>
+
+                                {/* Build y Runas */}
+                                {(aiResult.coreBuild || aiResult.runes) && (
+                                    <div className="grid grid-cols-2 gap-2 mb-2">
+                                        {aiResult.coreBuild && (
+                                            <div className="bg-indigo-900/30 p-2 rounded border border-indigo-500/20">
+                                                <h5 className="text-xs font-bold text-indigo-300 mb-1">⚔️ Core Build</h5>
+                                                <div className="flex flex-wrap gap-1">
+                                                    {aiResult.coreBuild.map((item, idx) => (
+                                                        <span key={idx} className="text-[10px] bg-black/40 px-1.5 py-0.5 rounded text-gray-200 border border-gray-700">
+                                                            {item}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                        {aiResult.runes && (
+                                            <div className="bg-pink-900/30 p-2 rounded border border-pink-500/20">
+                                                <h5 className="text-xs font-bold text-pink-300 mb-1">⚡ Runas</h5>
+                                                <div className="flex flex-col gap-0.5">
+                                                    <span className="text-[10px] text-gray-200">Main: <b>{aiResult.runes.primary}</b></span>
+                                                    <span className="text-[10px] text-gray-400">Sec: {aiResult.runes.secondary}</span>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                                 <div className="flex gap-2 items-center text-xs text-yellow-300 font-bold bg-yellow-900/20 p-2 rounded border border-yellow-700/30">
                                     <span>💡 TIP:</span>
                                     <span>{aiResult.strategy}</span>
@@ -145,7 +196,22 @@ export function RecommendationPanel({ allyTeam, enemyTeam }) {
                     <div className="absolute top-0 right-0 w-32 h-32 bg-purple-600 rounded-full blur-[60px] opacity-20 pointer-events-none"></div>
                 </div>
 
-                <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2">
+                <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2 mt-4 ml-4">
+                    Análisis de Composición
+                </h3>
+
+                {allyTeam.length > 0 ? (
+                    <div className="mb-4 bg-gray-800/50 p-2 mx-4 rounded-lg border border-gray-700">
+                        <TeamRadar stats={calculateTeamStats(allyTeam)} />
+                        <p className="text-[10px] text-center text-gray-500 mt-1">Aliados</p>
+                    </div>
+                ) : (
+                    <div className="mx-4 mb-4 p-4 text-center text-xs text-gray-600 italic border border-gray-700 border-dashed rounded">
+                        Selecciona campeones para ver el radar de estadísticas.
+                    </div>
+                )}
+
+                <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2 ml-4">
                     Algoritmo Clasico ({recommendations.length})
                 </h3>
 
