@@ -99,7 +99,7 @@ export function ChampionSelector({ title, limit, selectedChampions, onSelect, si
                         >
                             {champion ? (
                                 <img
-                                    src={`https://ddragon.leagueoflegends.com/cdn/13.24.1/img/champion/${champion.id}.png`}
+                                    src={champion.imageUrl}
                                     alt={champion.name}
                                     className="w-full h-full rounded-full cursor-pointer hover:opacity-80"
                                     onClick={() => handleSelect(champion)}
