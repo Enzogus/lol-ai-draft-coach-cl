@@ -115,7 +115,7 @@ export function ChampionSelector({ title, limit, selectedChampions, onSelect, si
 
             {/* Grid de Campeones */}
             <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-                <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-4 lg:grid-cols-5 gap-y-4 gap-x-2">
+                <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-y-4 gap-x-2">
                     {filteredChampions.map(champion => {
                         const isSelected = !!selectedChampions.find(c => c.id === champion.id);
                         // Deshabilitar si no está seleccionado y ya llegamos al límite
