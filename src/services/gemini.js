@@ -28,23 +28,29 @@ export async function generateGeminiRecommendation(apiKey, allyTeam, enemyTeam, 
     const enemies = enemyTeam.map(c => c.name).join(", ");
 
     const prompt = `
-      Actúa como un Coach de élite de League of Legends.
+      Actúa como un Coach de élite de League of Legends (Challenger).
       
       Situación del Draft:
       - Mi Equipo (Aliados): [${allies}]
       - Equipo Enemigo: [${enemies}]
       
       Tarea:
-      Recomienda UN solo campeón para completar el equipo aliado.
-      El campeón NO debe estar ya seleccionado.
+      Recomienda UN solo campeón óptimo para completar el equipo aliado.
       
-      Responde SOLO con un objeto JSON válido con esta estructura:
+      Responde SOLO con un objeto JSON válido con esta estructura exacta:
       {
-        "championName": "Nombre",
-        "role": "Rol",
+        "championName": "Nombre exacto del campeón",
+        "role": "Posición (Top/Jungle/Mid/ADC/Support)",
         "score": 95,
-        "reason": "Explicación breve",
-        "strategy": "Consejo táctico"
+        "reason": "Explicación estratégica breve (max 2 frases)",
+        "strategy": "Consejo táctico clave para la partida",
+        "coreBuild": ["Item 1", "Item 2", "Item 3"],
+        "runes": {
+            "primary": "Nombre Runa Principal",
+            "secondary": "Nombre Rama Secundaria"
+        },
+        "winPrediction": 65,
+        "winCondition": "Breve condición de victoria (ej: 'Escalar y pelear en late game')"
       }
     `;
 
