@@ -1,9 +1,10 @@
 import React from 'react';
 
-const VERSION = '13.24.1';
+const VERSION = '13.24.1'; // Ya no se usa para la imagen, pero se mantiene por si acaso o se borra
 
 export function ChampionCard({ champion, onClick, isSelected, isDisabled }) {
-    const imageUrl = `https://ddragon.leagueoflegends.com/cdn/${VERSION}/img/champion/${champion.id}.png`;
+    // Usamos la URL que viene lista desde el hook
+    const imageUrl = champion.imageUrl;
 
     return (
         <div
