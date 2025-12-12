@@ -40,7 +40,7 @@ export function ChampionSelector({ title, limit, selectedChampions, onSelect, si
 
     return (
         // En móvil, la altura depende de si está activo. En desktop (md) siempre es h-full.
-        <div className={`flex flex-col bg-gray-900 border-r ${side === 'ally' ? 'border-r-gray-700' : ''} p-4 transition-all duration-300 ${isActive ? 'h-full flex-1' : 'h-auto'}`}>
+        <div className={`flex flex-col bg-gray-900 border-r ${side === 'ally' ? 'border-r-gray-700' : ''} p-4 transition-all duration-300 ${isActive ? 'h-full flex-1' : 'h-auto'} md:h-full`}>
 
             {/* Header con Título y Contador - Clickable en Móvil */}
             <div
