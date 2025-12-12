@@ -7,10 +7,11 @@ async function generateWithRetry(model, prompt, retries = 0) {
     try {
         return await model.generateContent(prompt);
     } catch (error) {
-        const isOverloaded = error.message.includes('503') || error.message.includes('overloaded');
+        const isOverloaded = error.message.includes('503') || error.message.includes('overloaded') || error.message.includes('429');
         if (isOverloaded && retries < MAX_RETRIES) {
-            console.warn(`⚠️ Modelo saturado (503). Reintentando en ${RETRY_DELAY / 1000}s... (Intento ${retries + 1}/${MAX_RETRIES})`);
-            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+            const delay = RETRY_DELAY * (retries + 1); // Backoff exponencial simple
+            console.warn(`⚠️ Modelo saturado o límite de tasa (429/503). Reintentando en ${delay / 1000}s... (Intento ${retries + 1}/${MAX_RETRIES})`);
+            await new Promise(resolve => setTimeout(resolve, delay));
             return generateWithRetry(model, prompt, retries + 1);
         }
         throw error;
