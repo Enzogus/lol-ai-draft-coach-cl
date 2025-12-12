@@ -6,6 +6,8 @@ export default function App() {
   const [allyTeam, setAllyTeam] = useState([]);
   const [enemyTeam, setEnemyTeam] = useState([]);
   const [showMobileRecs, setShowMobileRecs] = useState(false);
+  // Estado para acordeón móvil ('ally' | 'enemy' | null). Inicialmente 'ally' abierto.
+  const [mobileActiveSection, setMobileActiveSection] = useState('ally');
 
   return (
     <div className="flex flex-col md:flex-row h-screen w-full bg-black overflow-hidden md:overflow-hidden relative">
@@ -38,14 +40,16 @@ export default function App() {
         </div>
       )}
 
-      {/* Lado Izquierdo: Aliados (4) */}
-      <div className="w-full md:w-1/3 h-1/2 md:h-full border-b md:border-b-0 md:border-r border-gray-800 relative z-0">
+      {/* Lado Izquierdo: Aliados (Accordion Prop: isActive solo afecta mobile) */}
+      <div className={`w-full md:w-1/3 border-b md:border-b-0 md:border-r border-gray-800 relative z-0 transition-all duration-300 ${mobileActiveSection === 'ally' ? 'flex-1' : 'h-auto'} md:h-full md:flex-1`}>
         <ChampionSelector
           title="Aliados"
           limit={4}
           side="ally"
           selectedChampions={allyTeam}
           onSelect={setAllyTeam}
+          isActive={mobileActiveSection === 'ally'}
+          onToggle={() => setMobileActiveSection(mobileActiveSection === 'ally' ? null : 'ally')}
         />
       </div>
 
@@ -54,14 +58,16 @@ export default function App() {
         <RecommendationPanel allyTeam={allyTeam} enemyTeam={enemyTeam} />
       </div>
 
-      {/* Lado Derecho: Enemigos (5) */}
-      <div className="w-full md:w-1/3 h-1/2 md:h-full md:border-l border-gray-800 relative z-0">
+      {/* Lado Derecho: Enemigos (Accordion Prop) */}
+      <div className={`w-full md:w-1/3 md:border-l border-gray-800 relative z-0 transition-all duration-300 ${mobileActiveSection === 'enemy' ? 'flex-1' : 'h-auto'} md:h-full md:flex-1`}>
         <ChampionSelector
           title="Enemigos"
           limit={5}
           side="enemy"
           selectedChampions={enemyTeam}
           onSelect={setEnemyTeam}
+          isActive={mobileActiveSection === 'enemy'}
+          onToggle={() => setMobileActiveSection(mobileActiveSection === 'enemy' ? null : 'enemy')}
         />
       </div>
     </div>
