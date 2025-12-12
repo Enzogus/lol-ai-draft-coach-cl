@@ -36,6 +36,7 @@ export async function generateGeminiRecommendation(apiKey, allyTeam, enemyTeam, 
       
       Tarea:
       Recomienda UN solo campeón óptimo para completar el equipo aliado.
+      IMPORTANTE: Todos los textos explicativos (razón, estrategia, condición de victoria) deben estar en ESPAÑOL.
       
       Responde SOLO con un objeto JSON válido con esta estructura exacta:
       {
