@@ -2,8 +2,10 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { useChampions } from '../hooks/useChampions';
 import { getRecommendations } from '../utils/recommender';
 import { generateGeminiRecommendation } from '../services/gemini';
+import { generateOpenAIRecommendation } from '../services/openai';
 import { TeamRadar } from './TeamRadar';
 import { calculateTeamStats } from '../utils/teamStats';
+import { ChampionDetailModal } from './ChampionDetailModal';
 
 export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChange }) {
     const ROLES = [
@@ -13,13 +15,31 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
         { id: 'ADC', label: 'ADC', icon: '🏹' },
         { id: 'Support', label: 'Support', icon: '🤝' },
     ];
-    const { champions } = useChampions();
-    // Leer API Key desde variable de entorno (seguro para deploy)
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    const { champions, version } = useChampions();
+    // Leer API Keys
+    const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    const openaiKey = import.meta.env.VITE_OPENAI_API_KEY;
+
+    console.log("API Keys:", { geminiKey, openaiKey });
 
     const [aiLoading, setAiLoading] = useState(false);
     const [aiResult, setAiResult] = useState(null);
     const [aiError, setAiError] = useState(null);
+    const [selectedOption, setSelectedOption] = useState(null);
+    const [elapsedTime, setElapsedTime] = useState(0);
+
+    // Timer logic
+    useEffect(() => {
+        let interval;
+        if (aiLoading) {
+            setElapsedTime(0); // Reset on start
+            const startTime = Date.now();
+            interval = setInterval(() => {
+                setElapsedTime(((Date.now() - startTime) / 1000).toFixed(1));
+            }, 100);
+        }
+        return () => clearInterval(interval);
+    }, [aiLoading]);
 
     const handleAiConsult = async () => {
         setAiLoading(true);
@@ -27,32 +47,85 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
         setAiResult(null);
 
         try {
-            const recommendation = await generateGeminiRecommendation(apiKey, allyTeam, enemyTeam, champions, userRole);
+            let recommendation = null;
+            let errorMsg = null;
 
-            // Función helper para normalizar nombres (quitar espacios, comillas, etc)
-            const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, '');
-            const targetName = normalize(recommendation.championName);
-
-            // Búsqueda robusta: Intentar coincidir por Name o ID (ej: "Wukong" vs "MonkeyKing")
-            const champData = champions.find(c =>
-                normalize(c.name) === targetName ||
-                normalize(c.id) === targetName ||
-                c.name.toLowerCase().includes(recommendation.championName.toLowerCase()) // Fallback laxo
-            );
-
-            // Si encontramos el campeón en nuestros datos actualizados, usamos su imagen pre-calculada
-            // Si no, intentamos construirla asumiendo que el nombre de la IA es el ID (arriesgado pero mejor que nada)
-            let finalImage = null;
-            if (champData) {
-                finalImage = champData.imageUrl;
-            } else {
-                // Fallback extremo: Usar el nombre que nos dio la IA limpiado
-                // Ej: "Lee Sin" -> "LeeSin.png"
-                const guessId = recommendation.championName.replace(/[^a-zA-Z0-9]/g, '');
-                finalImage = `https://ddragon.leagueoflegends.com/cdn/img/champion/loading/${guessId}_0.jpg`; // Intentamos loading art que a veces perdona más
+            // 1. Intentar con OpenAI (Prioridad)
+            if (openaiKey) {
+                try {
+                    recommendation = await generateOpenAIRecommendation(openaiKey, allyTeam, enemyTeam, champions, userRole, version);
+                    console.log("Recomendación OpenAI:", recommendation);
+                } catch (e) {
+                    console.warn("OpenAI falló, intentando backup Gemini...", e);
+                    errorMsg = `OpenAI Error: ${e.message}`;
+                }
             }
 
-            setAiResult({ ...recommendation, imageId: champData ? champData.id : null, imageUrl: finalImage });
+            // 2. Fallback a Gemini si OpenAI falló o no hay key
+            if (!recommendation && geminiKey) {
+                try {
+                    recommendation = await generateGeminiRecommendation(geminiKey, allyTeam, enemyTeam, champions, userRole, version);
+                    // Marcar que fue response de backup si venía de un fallo
+                    if (errorMsg) recommendation.modelUsed = "gemini-flash (backup)";
+                } catch (e) {
+                    throw new Error(errorMsg ? `${errorMsg} | Gemini Error: ${e.message}` : `Gemini Error: ${e.message}`);
+                }
+            }
+
+            if (!recommendation) {
+                throw new Error("No se pudo obtener recomendación de ninguna IA (Verifica tus API Keys).");
+            }
+
+            // Procesar array de opciones
+            // Nota: Tanto OpenAI como Gemini ahora devuelven { options: [...] }
+            if (recommendation.options && Array.isArray(recommendation.options)) {
+                // Función helper para normalizar nombres
+                const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+                const processedOptions = recommendation.options.map(opt => {
+                    const targetName = normalize(opt.championName);
+                    // Si la IA nos dio el ID exacto, úsalo para buscar
+                    const riotId = opt.riotId ? normalize(opt.riotId) : null;
+
+                    // Buscar imagen en nuestros datos locales (para el loading art de la lista)
+                    const champData = champions.find(c =>
+                        (riotId && normalize(c.id) === riotId) || // Match exacto por ID dado por IA
+                        normalize(c.name) === targetName ||
+                        normalize(c.id) === targetName ||
+                        c.name.toLowerCase().includes(opt.championName.toLowerCase())
+                    );
+
+                    let finalLoadingImage = null;
+                    let finalSplashImage = null;
+
+                    if (champData) {
+                        finalLoadingImage = champData.imageUrl;
+                        finalSplashImage = champData.splashUrl;
+                    } else {
+                        // Fallback con el ID que nos dio la IA o el nombre limpiado
+                        const guessId = opt.riotId || opt.championName.replace(/[^a-zA-Z0-9]/g, '');
+                        finalLoadingImage = `https://ddragon.leagueoflegends.com/cdn/img/champion/loading/${guessId}_0.jpg`;
+                        finalSplashImage = `https://ddragon.leagueoflegends.com/cdn/img/champion/splash/${guessId}_0.jpg`;
+                    }
+
+                    return {
+                        ...opt,
+                        imageId: champData ? champData.id : null,
+                        imageUrl: finalLoadingImage, // Para la lista (pequeña)
+                        splashUrl: finalSplashImage, // Para el modal (grande) - Construida localmente
+                        // Parsear datos comprimidos (Optimizacion de latencia)
+                        coreBuild: typeof opt.build === 'string' ? opt.build.split(',').map(s => s.trim()) : (opt.coreBuild || []),
+                        runes: typeof opt.runes === 'string' ? { primary: opt.runes.split('+')[0]?.trim(), secondary: opt.runes.split('+')[1]?.trim() } : (opt.runes || {}),
+                        strategy: opt.tactics || opt.strategy,
+                        winCondition: opt.tactics ? "Ver Estrategia" : opt.winCondition
+                    };
+                });
+
+                setAiResult({ options: processedOptions, modelUsed: recommendation.modelUsed });
+
+            } else {
+                throw new Error("Formato de respuesta IA inesperado (falta array options).");
+            }
         } catch (err) {
             setAiError(err.message);
         } finally {
@@ -145,11 +218,16 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
                         {/* Input eliminado */}
 
                         {aiLoading && (
-                            <div className="flex items-center gap-2 text-purple-200 animate-pulse">
-                                <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce"></div>
-                                <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce delay-100"></div>
-                                <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce delay-200"></div>
-                                <span className="text-sm">Analizando millones de partidas...</span>
+                            <div className="flex flex-col items-center justify-center p-4">
+                                <div className="flex items-center gap-2 text-purple-200 animate-pulse mb-1">
+                                    <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce"></div>
+                                    <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce delay-100"></div>
+                                    <div className="w-2 h-2 bg-purple-400 rounded-full animate-bounce delay-200"></div>
+                                    <span className="text-sm font-bold">Analizando... {elapsedTime}s</span>
+                                </div>
+                                <div className="w-full bg-gray-700/50 rounded-full h-1 overflow-hidden">
+                                    <div className="bg-purple-500 h-full animate-[shimmer_2s_infinite] w-1/2"></div>
+                                </div>
                             </div>
                         )}
 
@@ -159,99 +237,70 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
                             </div>
                         )}
 
-                        {aiResult && (
-                            <div className="animate-fade-in mt-2">
-                                <div className="flex items-center gap-4 mb-3">
-                                    {aiResult.imageUrl ? (
-                                        <img
-                                            src={aiResult.imageUrl}
-                                            alt={aiResult.championName}
-                                            className="w-16 h-16 rounded-full border-2 border-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.5)]"
-                                        />
-                                    ) : (
-                                        <div className="w-16 h-16 rounded-full bg-purple-800 flex items-center justify-center text-2xl font-bold text-white border-2 border-purple-400">
-                                            {aiResult.championName[0]}
-                                        </div>
-                                    )}
-                                    <div>
-                                        <h4 className="text-2xl font-bold text-white">{aiResult.championName}</h4>
-                                        <div className="flex gap-2">
-                                            <span className="text-purple-300 text-sm font-mono bg-purple-900/50 px-2 py-0.5 rounded">{aiResult.role} • Score {aiResult.score}</span>
-                                            {aiResult.modelUsed && (
-                                                <span className="text-xs text-blue-300 bg-blue-900/40 px-2 py-0.5 rounded border border-blue-500/30 flex items-center gap-1">
-                                                    🤖 {aiResult.modelUsed}
-                                                </span>
+                        {aiResult && aiResult.options && (
+                            <div className="animate-fade-in mt-2 space-y-3">
+                                {aiResult.modelUsed && (
+                                    <div className="flex justify-between items-center px-1">
+                                        <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${parseFloat(elapsedTime) < 10 ? 'text-green-300 bg-green-900/30 border-green-500/30' : 'text-yellow-300 bg-yellow-900/30 border-yellow-500/30'
+                                            }`}>
+                                            ⏱️ {elapsedTime}s
+                                        </span>
+                                        <span className="text-[10px] text-blue-300 bg-blue-900/40 px-2 py-0.5 rounded border border-blue-500/30">
+                                            🤖 {aiResult.modelUsed}
+                                        </span>
+                                    </div>
+                                )}
+
+                                {aiResult.options.map((option, idx) => (
+                                    <div
+                                        key={idx}
+                                        onClick={() => setSelectedOption(option)}
+                                        className="bg-black/30 rounded-lg p-3 border border-indigo-500/30 hover:bg-black/40 hover:border-indigo-400 transition-all cursor-pointer flex gap-3 group"
+                                    >
+                                        <div className="shrink-0 relative">
+                                            {option.imageUrl ? (
+                                                <img
+                                                    src={option.imageUrl}
+                                                    alt={option.championName}
+                                                    className="w-14 h-14 rounded-full border-2 border-indigo-400 shadow-md group-hover:scale-105 transition-transform"
+                                                />
+                                            ) : (
+                                                <div className="w-14 h-14 rounded-full bg-indigo-800 flex items-center justify-center border-2 border-indigo-400">
+                                                    <span className="text-xl text-white font-bold">{option.championName[0]}</span>
+                                                </div>
                                             )}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Predicción de Victoria */}
-                                {aiResult.winPrediction && (
-                                    <div className="mb-3 bg-black/40 rounded p-2 border border-gray-700">
-                                        <div className="flex justify-between text-xs text-gray-300 mb-1">
-                                            <span>Probabilidad de Victoria</span>
-                                            <span className={`font-bold ${aiResult.winPrediction >= 60 ? 'text-green-400' : 'text-yellow-400'}`}>
-                                                {aiResult.winPrediction}%
-                                            </span>
-                                        </div>
-                                        <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
-                                            <div
-                                                className={`h-full ${aiResult.winPrediction >= 60 ? 'bg-green-500' : 'bg-yellow-500'}`}
-                                                style={{ width: `${aiResult.winPrediction}%` }}
-                                            ></div>
-                                        </div>
-                                        <div className="text-[10px] text-gray-400 mt-1 italic leading-tight">
-                                            "{aiResult.winCondition}"
-                                        </div>
-                                    </div>
-                                )}
-
-                                <div className="bg-black/20 p-3 rounded-lg text-sm text-purple-100 leading-relaxed mb-2">
-                                    {aiResult.reason}
-                                </div>
-
-                                {/* Build y Runas */}
-                                {(aiResult.coreBuild || aiResult.runes) && (
-                                    <div className="grid grid-cols-2 gap-2 mb-2">
-                                        {aiResult.coreBuild && (
-                                            <div className="bg-indigo-900/30 p-2 rounded border border-indigo-500/20">
-                                                <h5 className="text-xs font-bold text-indigo-300 mb-1">⚔️ Core Build</h5>
-                                                <div className="flex flex-wrap gap-1">
-                                                    {aiResult.coreBuild.map((item, idx) => (
-                                                        <span key={idx} className="text-[10px] bg-black/40 px-1.5 py-0.5 rounded text-gray-200 border border-gray-700">
-                                                            {item}
-                                                        </span>
-                                                    ))}
-                                                </div>
+                                            <div className="absolute -bottom-1 -right-1 bg-yellow-600 text-[10px] text-white font-bold px-1 rounded-full border border-black shadow-sm">
+                                                Tap
                                             </div>
-                                        )}
-                                        {aiResult.runes && (
-                                            <div className="bg-pink-900/30 p-2 rounded border border-pink-500/20">
-                                                <h5 className="text-xs font-bold text-pink-300 mb-1">⚡ Runas</h5>
-                                                <div className="flex flex-col gap-0.5">
-                                                    <span className="text-[10px] text-gray-200">Main: <b>{aiResult.runes.primary}</b></span>
-                                                    <span className="text-[10px] text-gray-400">Sec: {aiResult.runes.secondary}</span>
-                                                </div>
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex justify-between items-start mb-1">
+                                                <h4 className="text-white font-bold truncate group-hover:text-yellow-400 transition-colors">{option.championName}</h4>
+                                                <span className="text-yellow-400 font-bold text-sm bg-black/40 px-1.5 rounded">{option.score} pts</span>
                                             </div>
-                                        )}
+                                            <p className="text-gray-300 text-xs leading-snug line-clamp-2 opacity-80 group-hover:opacity-100">
+                                                {option.reason}
+                                            </p>
+                                        </div>
                                     </div>
-                                )}
-                                <div className="flex gap-2 items-center text-xs text-yellow-300 font-bold bg-yellow-900/20 p-2 rounded border border-yellow-700/30">
-                                    <span>💡 TIP:</span>
-                                    <span>{aiResult.strategy}</span>
-                                </div>
+                                ))}
+
                                 <button onClick={handleAiConsult} className="mt-3 text-xs text-purple-300 hover:text-white underline w-full text-center">
                                     Re-analizar
                                 </button>
                             </div>
                         )}
+
+                        {/* Modal de Detalle */}
+                        <ChampionDetailModal
+                            champion={selectedOption}
+                            onClose={() => setSelectedOption(null)}
+                        />
+
+                        {/* Background decoration */}
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-purple-600 rounded-full blur-[60px] opacity-20 pointer-events-none"></div>
                     </div>
-
-                    {/* Background decoration */}
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-purple-600 rounded-full blur-[60px] opacity-20 pointer-events-none"></div>
                 </div>
-
                 <h3 className="text-gray-400 text-xs font-bold uppercase tracking-wider mb-2 mt-4 ml-4">
                     Análisis de Composición
                 </h3>

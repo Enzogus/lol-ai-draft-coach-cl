@@ -18,7 +18,7 @@ async function generateWithRetry(model, prompt, retries = 0) {
     }
 }
 
-export async function generateGeminiRecommendation(apiKey, allyTeam, enemyTeam, availableChampions, userRole) {
+export async function generateGeminiRecommendation(apiKey, allyTeam, enemyTeam, availableChampions, userRole, gameVersion) {
     const genAI = new GoogleGenerativeAI(apiKey);
 
     // Usamos directamente el modelo solicitado por el usuario para máxima velocidad
@@ -29,11 +29,13 @@ export async function generateGeminiRecommendation(apiKey, allyTeam, enemyTeam, 
     const enemies = enemyTeam.map(c => c.name).join(", ");
 
     const roleInstruction = userRole
-        ? `IMPORTANTE: El usuario VA A JUGAR ROL: ${userRole}. Recomienda el MEJOR campeón para este rol específico.`
-        : "Recomienda UN solo campeón óptimo para completar el equipo aliado.";
+        ? `IMPORTANTE: El usuario VA A JUGAR ROL: ${userRole}. Recomienda 3 opciones para este rol específico.`
+        : "Recomienda 3 opciones de campeones óptimos para completar el equipo aliado.";
 
     const prompt = `
       Actúa como un Coach de élite de League of Legends (Challenger).
+      Estás analizando para el PARCHE: ${gameVersion || "Más reciente"}.
+      IMPORTANTE: NO recomiendes items eliminados. Usa solo items vigentes en este parche.
       
       Situación del Draft:
       - Mi Equipo (Aliados): [${allies}]
@@ -45,18 +47,18 @@ export async function generateGeminiRecommendation(apiKey, allyTeam, enemyTeam, 
       
       Responde SOLO con un objeto JSON válido con esta estructura exacta:
       {
-        "championName": "Nombre exacto del campeón",
-        "role": "Posición (Top/Jungle/Mid/ADC/Support)",
-        "score": 95,
-        "reason": "Explicación estratégica breve (max 2 frases)",
-        "strategy": "Consejo táctico clave para la partida",
-        "coreBuild": ["Item 1", "Item 2", "Item 3"],
-        "runes": {
-            "primary": "Nombre Runa Principal",
-            "secondary": "Nombre Rama Secundaria"
-        },
-        "winPrediction": 65,
-        "winCondition": "Breve condición de victoria (ej: 'Escalar y pelear en late game')"
+        "options": [
+          {
+            "championName": "Nombre Visual",
+            "riotId": "ID interno Riot (ej: MonkeyKing)",
+            "score": 95,
+            "reason": "Max 15 palabras.",
+            "tactics": "Max 15 palabras (estrategia y victoria).",
+            "build": "Item1, Item2, Item3",
+            "runes": "RunaPrincipal + Secundaria"
+          },
+          ... (2 opciones más)
+        ]
       }
     `;
 
