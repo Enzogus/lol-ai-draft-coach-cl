@@ -2,7 +2,6 @@ import React from 'react';
 
 export function ChampionDetailModal({ champion, onClose }) {
     if (!champion) return null;
-    console.log("ChampionDetailModal", champion);
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 animate-fade-in" style={{ willChange: 'opacity' }}>
             {/* Card Container - Performance Optimized */}

@@ -20,7 +20,9 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
     const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
     const openaiKey = import.meta.env.VITE_OPENAI_API_KEY;
 
-    console.log("API Keys:", { geminiKey, openaiKey });
+    // Versión manual para la IA (Solución a defase API Riot vs Cliente Live)
+    const AI_CONTEXT_VERSION = "25.24";
+
 
     const [aiLoading, setAiLoading] = useState(false);
     const [aiResult, setAiResult] = useState(null);
@@ -53,8 +55,8 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
             // 1. Intentar con OpenAI (Prioridad)
             if (openaiKey) {
                 try {
-                    recommendation = await generateOpenAIRecommendation(openaiKey, allyTeam, enemyTeam, champions, userRole, version);
-                    console.log("Recomendación OpenAI:", recommendation);
+                    console.log("Recomendación OpenAI:", allyTeam, enemyTeam, champions, userRole, AI_CONTEXT_VERSION);
+                    recommendation = await generateOpenAIRecommendation(openaiKey, allyTeam, enemyTeam, champions, userRole, AI_CONTEXT_VERSION);
                 } catch (e) {
                     console.warn("OpenAI falló, intentando backup Gemini...", e);
                     errorMsg = `OpenAI Error: ${e.message}`;
@@ -64,7 +66,7 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
             // 2. Fallback a Gemini si OpenAI falló o no hay key
             if (!recommendation && geminiKey) {
                 try {
-                    recommendation = await generateGeminiRecommendation(geminiKey, allyTeam, enemyTeam, champions, userRole, version);
+                    recommendation = await generateGeminiRecommendation(geminiKey, allyTeam, enemyTeam, champions, userRole, AI_CONTEXT_VERSION);
                     // Marcar que fue response de backup si venía de un fallo
                     if (errorMsg) recommendation.modelUsed = "gemini-flash (backup)";
                 } catch (e) {
@@ -134,16 +136,22 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
     };
 
     // Efecto para Auto-Consulta con Debounce
+    // Serializar IDs para detectar cambios reales en el contenido de los arreglos
+    const alliesStr = useMemo(() => allyTeam.map(c => c.id).sort().join(','), [allyTeam]);
+    const enemiesStr = useMemo(() => enemyTeam.map(c => c.id).sort().join(','), [enemyTeam]);
+
+    // Efecto para Auto-Consulta con Debounce
     useEffect(() => {
         // Solo activar si hay un rol seleccionado y al menos un campeón en juego
         if (!userRole || (allyTeam.length === 0 && enemyTeam.length === 0)) return;
 
+        console.log("Detectado cambio en equipos/rol, programando consulta IA...");
         const timer = setTimeout(() => {
             handleAiConsult();
         }, 1500); // 1.5s debounce
 
         return () => clearTimeout(timer);
-    }, [allyTeam, enemyTeam, userRole]);
+    }, [alliesStr, enemiesStr, userRole]);
 
     // Calcular recomendaciones algorítmicas clásicas
     const recommendations = useMemo(() => {

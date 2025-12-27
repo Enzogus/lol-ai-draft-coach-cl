@@ -15,6 +15,12 @@ export async function generateOpenAIRecommendation(apiKey, allyTeam, enemyTeam, 
   const systemPrompt = `
       Actúa como un Coach de élite de League of Legends (Challenger).
       Estás analizando para el PARCHE: ${gameVersion || "Más reciente"}.
+      
+      CRITERIOS DE SELECCIÓN (BALANCEADOS):
+      1. FILTRO BASE: Considera solo campeones viables (Tier S/A/B) en el meta actual.
+      2. DECISIÓN FINAL: De ese grupo viable, elige los que tengan MEJOR SINERGIA con aliados o sean COUNTERS de los enemigos.
+      3. IMPORTANTE: No recomiendes ciegamente el Top 1 Winrate si es un mal matchup.
+
       IMPORTANTE: NO recomiendes items eliminados (ej: Míticos antiguos). Usa solo items vigentes en este parche.
       Tu tarea es recomendar 3 opciones de campeones dadas las composiciones de equipos.
       Todos los textos deben estar en ESPAÑOL.
@@ -54,7 +60,7 @@ export async function generateOpenAIRecommendation(apiKey, allyTeam, enemyTeam, 
         "Authorization": `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini", // Modelo rápido y eficiente
+        model: "gpt-4o", // Modelo 'Flagship' mas inteligente
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
@@ -72,7 +78,7 @@ export async function generateOpenAIRecommendation(apiKey, allyTeam, enemyTeam, 
     const data = await response.json();
     const content = data.choices[0].message.content;
 
-    return { ...JSON.parse(content), modelUsed: "gpt-4o-mini" };
+    return { ...JSON.parse(content), modelUsed: "gpt-4o" };
 
   } catch (error) {
     console.error("OpenAI API Error:", error);

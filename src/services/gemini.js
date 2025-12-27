@@ -35,6 +35,12 @@ export async function generateGeminiRecommendation(apiKey, allyTeam, enemyTeam, 
     const prompt = `
       Actúa como un Coach de élite de League of Legends (Challenger).
       Estás analizando para el PARCHE: ${gameVersion || "Más reciente"}.
+      
+      CRITERIOS DE SELECCIÓN (BALANCEADOS):
+      1. FILTRO BASE: Considera solo campeones viables (Tier S/A/B) en el meta actual.
+      2. DECISIÓN FINAL: De ese grupo viable, elige los que tengan MEJOR SINERGIA con aliados o sean COUNTERS de los enemigos.
+      3. IMPORTANTE: No recomiendes ciegamente el Top 1 Winrate si es un mal matchup (ej: no recomendar Jinx contra 3 asesinos, mejor recomendar Ezreal/Xayah aunque tengan menos winrate global).
+      
       IMPORTANTE: NO recomiendes items eliminados. Usa solo items vigentes en este parche.
       
       Situación del Draft:
