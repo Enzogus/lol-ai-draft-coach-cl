@@ -1,8 +1,8 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useChampions } from '../hooks/useChampions';
 import { getRecommendations } from '../utils/recommender';
-import { generateGeminiRecommendation } from '../services/gemini';
-import { generateOpenAIRecommendation } from '../services/openai';
+import { generateGeminiRecommendationsLight, generateGeminiChampionDetails } from '../services/gemini';
+import { generateOpenAIRecommendationsLight, generateOpenAIChampionDetails } from '../services/openai';
 import { TeamRadar } from './TeamRadar';
 import { calculateTeamStats } from '../utils/teamStats';
 import { ChampionDetailModal } from './ChampionDetailModal';
@@ -15,7 +15,7 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
         { id: 'ADC', label: 'ADC', icon: '🏹' },
         { id: 'Support', label: 'Support', icon: '🤝' },
     ];
-    const { champions, version } = useChampions();
+    const { champions, items, runes, version } = useChampions();
     // Leer API Keys
     const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
     const openaiKey = import.meta.env.VITE_OPENAI_API_KEY;
@@ -28,6 +28,7 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
     const [aiResult, setAiResult] = useState(null);
     const [aiError, setAiError] = useState(null);
     const [selectedOption, setSelectedOption] = useState(null);
+    const [detailsLoading, setDetailsLoading] = useState(false);
     const [elapsedTime, setElapsedTime] = useState(0);
 
     // Timer logic
@@ -55,10 +56,10 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
             // 1. Intentar con OpenAI (Prioridad)
             if (openaiKey) {
                 try {
-                    console.log("Recomendación OpenAI:", allyTeam, enemyTeam, champions, userRole, AI_CONTEXT_VERSION);
-                    recommendation = await generateOpenAIRecommendation(openaiKey, allyTeam, enemyTeam, champions, userRole, AI_CONTEXT_VERSION);
+                    console.log("Recomendación OpenAI Light:", allyTeam, enemyTeam, champions, userRole, AI_CONTEXT_VERSION);
+                    recommendation = await generateOpenAIRecommendationsLight(openaiKey, allyTeam, enemyTeam, champions, userRole, AI_CONTEXT_VERSION);
                 } catch (e) {
-                    console.warn("OpenAI falló, intentando backup Gemini...", e);
+                    console.warn("OpenAI Light falló, intentando backup Gemini...", e);
                     errorMsg = `OpenAI Error: ${e.message}`;
                 }
             }
@@ -66,7 +67,7 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
             // 2. Fallback a Gemini si OpenAI falló o no hay key
             if (!recommendation && geminiKey) {
                 try {
-                    recommendation = await generateGeminiRecommendation(geminiKey, allyTeam, enemyTeam, champions, userRole, AI_CONTEXT_VERSION);
+                    recommendation = await generateGeminiRecommendationsLight(geminiKey, allyTeam, enemyTeam, champions, userRole, AI_CONTEXT_VERSION);
                     // Marcar que fue response de backup si venía de un fallo
                     if (errorMsg) recommendation.modelUsed = "gemini-flash (backup)";
                 } catch (e) {
@@ -116,10 +117,11 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
                         imageUrl: finalLoadingImage, // Para la lista (pequeña)
                         splashUrl: finalSplashImage, // Para el modal (grande) - Construida localmente
                         // Parsear datos comprimidos (Optimizacion de latencia)
-                        coreBuild: typeof opt.build === 'string' ? opt.build.split(',').map(s => s.trim()) : (opt.coreBuild || []),
-                        runes: typeof opt.runes === 'string' ? { primary: opt.runes.split('+')[0]?.trim(), secondary: opt.runes.split('+')[1]?.trim() } : (opt.runes || {}),
-                        strategy: opt.tactics || opt.strategy,
-                        winCondition: opt.tactics ? "Ver Estrategia" : opt.winCondition
+                        // Inicializar vacío para el modo Light
+                        coreBuild: [],
+                        runes: {},
+                        strategy: null,
+                        winCondition: null
                     };
                 });
 
@@ -132,6 +134,53 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
             setAiError(err.message);
         } finally {
             setAiLoading(false);
+        }
+    };
+
+    const handleSelectOption = async (option) => {
+        // 1. Mostrar modal inmediatamente con lo que tenemos
+        setSelectedOption(option);
+
+        // Si ya tiene estrategia cargada, no hacemos nada más
+        if (option.strategy) return;
+
+        // 2. Cargar detalles (Fase 2)
+        setDetailsLoading(true);
+        try {
+            let details = null;
+            // Intentar OpenAI Details
+            if (openaiKey) {
+                try {
+                    details = await generateOpenAIChampionDetails(openaiKey, allyTeam, enemyTeam, option.championName, AI_CONTEXT_VERSION);
+                } catch (e) { console.warn("OpenAI Details error", e); }
+            }
+            // Fallback Gemini Details
+            if (!details && geminiKey) {
+                try {
+                    details = await generateGeminiChampionDetails(geminiKey, allyTeam, enemyTeam, option.championName, AI_CONTEXT_VERSION);
+                } catch (e) { console.warn("Gemini Details error", e); }
+            }
+
+            if (details) {
+                const enhancedOption = {
+                    ...option,
+                    coreBuild: typeof details.build === 'string' ? details.build.split(',').map(s => s.trim()) : [],
+                    runes: typeof details.runes === 'string' ? { primary: details.runes.split('+')[0]?.trim(), secondary: details.runes.split('+')[1]?.trim() } : (details.runes || {}),
+                    strategy: details.tactics,
+                    winCondition: "Estrategia Completa"
+                };
+
+                // Actualizar estado general y el seleccionado
+                setAiResult(prev => ({
+                    ...prev,
+                    options: prev.options.map(o => o.championName === option.championName ? enhancedOption : o)
+                }));
+                setSelectedOption(enhancedOption);
+            }
+        } catch (error) {
+            console.error("Error cargando detalles profundos:", error);
+        } finally {
+            setDetailsLoading(false);
         }
     };
 
@@ -158,16 +207,16 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
         return getRecommendations(champions, allyTeam, enemyTeam);
     }, [champions, allyTeam, enemyTeam]);
 
-    // Si no tenemos suficientes datos para recomendar, mensaje inicial
-    if (allyTeam.length === 0 && enemyTeam.length === 0) {
-        return (
-            <div className="flex flex-col items-center justify-center h-full text-gray-500 p-8 text-center opacity-50">
-                <span className="text-4xl mb-4">🧠</span>
-                <h3 className="text-xl font-bold mb-2">IA Recomendadora</h3>
-                <p>Selecciona campeones aliados y enemigos para ver sugerencias inteligentes.</p>
-            </div>
-        );
-    }
+    // // Si no tenemos suficientes datos para recomendar, mensaje inicial
+    // if (allyTeam.length === 0 && enemyTeam.length === 0) {
+    //     return (
+    //         <div className="flex flex-col items-center justify-center h-full text-gray-500 p-8 text-center opacity-50">
+    //             <span className="text-4xl mb-4">🧠</span>
+    //             <h3 className="text-xl font-bold mb-2">IA Recomendadora</h3>
+    //             <p>Selecciona campeones aliados y enemigos para ver sugerencias inteligentes.</p>
+    //         </div>
+    //     );
+    // }
 
     return (
         <div className="h-full bg-gray-900 border-l border-r border-gray-700 flex flex-col">
@@ -262,7 +311,7 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
                                 {aiResult.options.map((option, idx) => (
                                     <div
                                         key={idx}
-                                        onClick={() => setSelectedOption(option)}
+                                        onClick={() => handleSelectOption(option)}
                                         className="bg-black/30 rounded-lg p-3 border border-indigo-500/30 hover:bg-black/40 hover:border-indigo-400 transition-all cursor-pointer flex gap-3 group"
                                     >
                                         <div className="shrink-0 relative">
@@ -303,6 +352,9 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
                         <ChampionDetailModal
                             champion={selectedOption}
                             onClose={() => setSelectedOption(null)}
+                            isLoading={detailsLoading}
+                            allItems={items}
+                            allRunes={runes}
                         />
 
                         {/* Background decoration */}

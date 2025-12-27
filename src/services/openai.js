@@ -1,10 +1,9 @@
 
 const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 
-export async function generateOpenAIRecommendation(apiKey, allyTeam, enemyTeam, availableChampions, userRole, gameVersion) {
+export async function generateOpenAIRecommendationsLight(apiKey, allyTeam, enemyTeam, availableChampions, userRole, gameVersion) {
   if (!apiKey) throw new Error("OpenAI API Key no encontrada");
 
-  // Contexto
   const allies = allyTeam.map(c => c.name).join(", ");
   const enemies = enemyTeam.map(c => c.name).join(", ");
 
@@ -13,43 +12,27 @@ export async function generateOpenAIRecommendation(apiKey, allyTeam, enemyTeam, 
     : "Recomienda 3 opciones de campeones óptimos para completar el equipo aliado.";
 
   const systemPrompt = `
-      Actúa como un Coach de élite de League of Legends (Challenger).
-      Estás analizando para el PARCHE: ${gameVersion || "Más reciente"}.
+      Actúa como un Coach. Analiza para PARCHE: ${gameVersion || "Más reciente"}.
+      CRITERIOS:
+      1. Prioriza campeones Meta (Tier S/A) y con buen matchup.
+      2. Responde RÁPIDO. Solo nombres y razón breve.
       
-      CRITERIOS DE SELECCIÓN (BALANCEADOS):
-      1. FILTRO BASE: Considera solo campeones viables (Tier S/A/B) en el meta actual.
-      2. DECISIÓN FINAL: De ese grupo viable, elige los que tengan MEJOR SINERGIA con aliados o sean COUNTERS de los enemigos.
-      3. IMPORTANTE: No recomiendes ciegamente el Top 1 Winrate si es un mal matchup.
-
-      IMPORTANTE: NO recomiendes items eliminados (ej: Míticos antiguos). Usa solo items vigentes en este parche.
-      Tu tarea es recomendar 3 opciones de campeones dadas las composiciones de equipos.
-      Todos los textos deben estar en ESPAÑOL.
-      Debes responder SOLAMENTE con un JSON válido.
-    `;
-
-  const userPrompt = `
-      Situación del Draft:
-      - Mi Equipo (Aliados): [${allies}]
-      - Equipo Enemigo: [${enemies}]
-      
-      Tarea:
-      ${roleInstruction}
-      
-      Responde SOLO con un objeto JSON válido con esta estructura exacta:
+      Responde SOLO con un JSON válido:
       {
         "options": [
           {
-            "championName": "Nombre Visual",
-            "riotId": "ID interno Riot (ej: MonkeyKing)",
-            "score": 95,
-            "reason": "Max 15 palabras.",
-            "tactics": "Max 15 palabras (estrategia y victoria).",
-            "build": "Item1, Item2, Item3",
-            "runes": "RunaPrincipal + Secundaria"
-          },
-          ... (2 opciones más)
+            "championName": "Nombre",
+            "riotId": "ID",
+            "reason": "Max 10 palabras sobre por qué es bueno aquí."
+          }
         ]
       }
+    `;
+
+  const userPrompt = `
+      Aliados: [${allies}]
+      Enemigos: [${enemies}]
+      Tarea: ${roleInstruction}
     `;
 
   try {
@@ -60,28 +43,72 @@ export async function generateOpenAIRecommendation(apiKey, allyTeam, enemyTeam, 
         "Authorization": `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: "gpt-4o", // Modelo 'Flagship' mas inteligente
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
-        ],
+        model: "gpt-4o",
+        messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
         temperature: 0.7,
-        response_format: { type: "json_object" } // Asegura respuesta JSON
+        response_format: { type: "json_object" }
       })
     });
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error?.message || "Error en OpenAI API");
-    }
-
+    if (!response.ok) throw new Error("Error OpenAI Light");
     const data = await response.json();
-    const content = data.choices[0].message.content;
-
-    return { ...JSON.parse(content), modelUsed: "gpt-4o" };
+    return { ...JSON.parse(data.choices[0].message.content), modelUsed: "gpt-4o" };
 
   } catch (error) {
-    console.error("OpenAI API Error:", error);
+    console.error("OpenAI Light Error:", error);
+    throw error;
+  }
+}
+
+export async function generateOpenAIChampionDetails(apiKey, allyTeam, enemyTeam, championName, gameVersion) {
+  if (!apiKey) throw new Error("OpenAI API Key no encontrada");
+
+  const allies = allyTeam.map(c => c.name).join(", ");
+  const enemies = enemyTeam.map(c => c.name).join(", ");
+
+  const systemPrompt = `
+      Eres un Coach Challenger. Parche: ${gameVersion}.
+      Analiza PROFUNDAMENTE la elección de: ${championName}.
+      
+      REGLAS PARA ITEMS Y RUNAS:
+      1. Usa los NOMBRES OFICIALES EN INGLÉS No los traduzcas.
+      2. No recomiendes items eliminados (ej: Míticos antiguos). Solo items vigentes en el parche ${gameVersion}.
+      
+      Output JSON:
+      {
+         "tactics": "Estrategia detallada de fase de lineas y teamfights (Max 550 caracteres).",
+         "build": "Item1, Item2, Item3 (Nombres en Inglés)",
+         "runes": "Runa Principal + Secundaria (Nombres en Inglés)"
+      }
+    `;
+
+  const userPrompt = `
+      Aliados: [${allies}]
+      Enemigos: [${enemies}]
+      Campeón Elegido: ${championName}
+    `;
+
+  try {
+    const response = await fetch(OPENAI_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+        temperature: 0.7,
+        response_format: { type: "json_object" }
+      })
+    });
+
+    if (!response.ok) throw new Error("Error OpenAI Details");
+    const data = await response.json();
+    return JSON.parse(data.choices[0].message.content);
+
+  } catch (error) {
+    console.error("OpenAI Details Error:", error);
     throw error;
   }
 }

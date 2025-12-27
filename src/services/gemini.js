@@ -9,8 +9,8 @@ async function generateWithRetry(model, prompt, retries = 0) {
     } catch (error) {
         const isOverloaded = error.message.includes('503') || error.message.includes('overloaded') || error.message.includes('429');
         if (isOverloaded && retries < MAX_RETRIES) {
-            const delay = RETRY_DELAY * (retries + 1); // Backoff exponencial simple
-            console.warn(`⚠️ Modelo saturado o límite de tasa (429/503). Reintentando en ${delay / 1000}s... (Intento ${retries + 1}/${MAX_RETRIES})`);
+            const delay = RETRY_DELAY * (retries + 1);
+            console.warn(`⚠️ Modelo saturado. Reintentando en ${delay / 1000}s...`);
             await new Promise(resolve => setTimeout(resolve, delay));
             return generateWithRetry(model, prompt, retries + 1);
         }
@@ -18,13 +18,10 @@ async function generateWithRetry(model, prompt, retries = 0) {
     }
 }
 
-export async function generateGeminiRecommendation(apiKey, allyTeam, enemyTeam, availableChampions, userRole, gameVersion) {
+export async function generateGeminiRecommendationsLight(apiKey, allyTeam, enemyTeam, availableChampions, userRole, gameVersion) {
     const genAI = new GoogleGenerativeAI(apiKey);
-
-    // Usamos directamente el modelo solicitado por el usuario para máxima velocidad
     const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
 
-    // Preparar contexto simplificado
     const allies = allyTeam.map(c => c.name).join(", ");
     const enemies = enemyTeam.map(c => c.name).join(", ");
 
@@ -33,60 +30,83 @@ export async function generateGeminiRecommendation(apiKey, allyTeam, enemyTeam, 
         : "Recomienda 3 opciones de campeones óptimos para completar el equipo aliado.";
 
     const prompt = `
-      Actúa como un Coach de élite de League of Legends (Challenger).
-      Estás analizando para el PARCHE: ${gameVersion || "Más reciente"}.
+      Actúa como Coach. Analiza para PARCHE: ${gameVersion || "Más reciente"}.
+      CRITERIOS:
+      1. Prioriza campeones Meta (Tier S/A) y con buen matchup.
+      2. Responde RÁPIDO. Solo nombres y razón breve.
       
-      CRITERIOS DE SELECCIÓN (BALANCEADOS):
-      1. FILTRO BASE: Considera solo campeones viables (Tier S/A/B) en el meta actual.
-      2. DECISIÓN FINAL: De ese grupo viable, elige los que tengan MEJOR SINERGIA con aliados o sean COUNTERS de los enemigos.
-      3. IMPORTANTE: No recomiendes ciegamente el Top 1 Winrate si es un mal matchup (ej: no recomendar Jinx contra 3 asesinos, mejor recomendar Ezreal/Xayah aunque tengan menos winrate global).
+      Aliados: [${allies}]
+      Enemigos: [${enemies}]
+      Tarea: ${roleInstruction}
       
-      IMPORTANTE: NO recomiendes items eliminados. Usa solo items vigentes en este parche.
-      
-      Situación del Draft:
-      - Mi Equipo (Aliados): [${allies}]
-      - Equipo Enemigo: [${enemies}]
-      
-      Tarea:
-      ${roleInstruction}
-      IMPORTANTE: Todos los textos explicativos (razón, estrategia, condición de victoria) deben estar en ESPAÑOL.
-      
-      Responde SOLO con un objeto JSON válido con esta estructura exacta:
+      Responde SOLO con un objeto JSON válido:
       {
         "options": [
           {
-            "championName": "Nombre Visual",
-            "riotId": "ID interno Riot (ej: MonkeyKing)",
-            "score": 95,
-            "reason": "Max 15 palabras.",
-            "tactics": "Max 15 palabras (estrategia y victoria).",
-            "build": "Item1, Item2, Item3",
-            "runes": "RunaPrincipal + Secundaria"
-          },
-          ... (2 opciones más)
+            "championName": "Nombre",
+            "riotId": "ID",
+            "reason": "Max 10 palabras sobre por qué es bueno aquí."
+          }
         ]
       }
     `;
 
     try {
-        // Usamos la función con retry
         const result = await generateWithRetry(model, prompt);
         const response = await result.response;
         const text = response.text();
-
-        // Extracción robusta de JSON
         const firstBrace = text.indexOf('{');
         const lastBrace = text.lastIndexOf('}');
-
         if (firstBrace !== -1 && lastBrace !== -1) {
             const jsonString = text.substring(firstBrace, lastBrace + 1);
-            const data = JSON.parse(jsonString);
-            return { ...data, modelUsed: "gemini-flash-latest" };
-        } else {
-            throw new Error("Formato JSON inválido en respuesta");
+            return { ...JSON.parse(jsonString), modelUsed: "gemini-flash" };
         }
+        throw new Error("JSON inválido Gemini Light");
     } catch (error) {
-        console.error("Gemini API Error:", error);
-        throw new Error(`Error: ${error.message}`);
+        console.error("Gemini Light Error:", error);
+        throw error;
+    }
+}
+
+export async function generateGeminiChampionDetails(apiKey, allyTeam, enemyTeam, championName, gameVersion) {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+
+    const allies = allyTeam.map(c => c.name).join(", ");
+    const enemies = enemyTeam.map(c => c.name).join(", ");
+
+    const prompt = `
+      Eres un Coach Challenger. Parche: ${gameVersion}.
+      Analiza PROFUNDAMENTE la elección de: ${championName}.
+      
+      Aliados: [${allies}]
+      Enemigos: [${enemies}]
+      
+      REGLAS PARA ITEMS Y RUNAS:
+      1. Usa los NOMBRES OFICIALES EN INGLÉS (ej: 'Infinity Edge', 'Conqueror'). No los traduzcas.
+      2. No recomiendes items eliminados. Solo items vigentes en el parche ${gameVersion}.
+      
+      Output JSON:
+      {
+         "tactics": "Estrategia detallada de fase de lineas y teamfights (Max 550 caracteres).",
+         "build": "Item1, Item2, Item3 (Nombres en Inglés)",
+         "runes": "Runa Principal + Secundaria (Nombres en Inglés)"
+      }
+    `;
+
+    try {
+        const result = await generateWithRetry(model, prompt);
+        const response = await result.response;
+        const text = response.text();
+        const firstBrace = text.indexOf('{');
+        const lastBrace = text.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace !== -1) {
+            const jsonString = text.substring(firstBrace, lastBrace + 1);
+            return JSON.parse(jsonString);
+        }
+        throw new Error("JSON inválido Gemini Details");
+    } catch (error) {
+        console.error("Gemini Details Error:", error);
+        throw error;
     }
 }

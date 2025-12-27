@@ -35,4 +35,18 @@
   .animate-fade-in {
     animation: fadeIn 0.3s ease-out forwards;
   }
+
+  @keyframes rotateY {
+    from {
+      transform: perspective(1000px) rotateY(0deg);
+    }
+
+    to {
+      transform: perspective(1000px) rotateY(360deg);
+    }
+  }
+
+  .animate-rotate-y {
+    animation: rotateY 1s linear infinite;
+  }
 }
