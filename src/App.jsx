@@ -12,11 +12,11 @@ export default function App() {
   const [userRole, setUserRole] = useState(null);
 
   const ROLES = [
-    { id: 'Top', label: 'Top', icon: '🛡️' },
-    { id: 'Jungle', label: 'Jungle', icon: '🌲' },
-    { id: 'Mid', label: 'Mid', icon: '🔮' },
-    { id: 'ADC', label: 'ADC', icon: '🏹' },
-    { id: 'Support', label: 'Support', icon: '🤝' },
+    { id: 'Top', label: 'Top', icon: 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-top.png' },
+    { id: 'Jungle', label: 'Jungle', icon: 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-jungle.png' },
+    { id: 'Mid', label: 'Mid', icon: 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-middle.png' },
+    { id: 'ADC', label: 'ADC', icon: 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-bottom.png' },
+    { id: 'Support', label: 'Support', icon: 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-utility.png' },
   ];
 
   return (
@@ -35,9 +35,9 @@ export default function App() {
             </h2>
             <button
               onClick={() => setShowMobileRecs(false)}
-              className="text-gray-400 hover:text-white bg-gray-800 p-2 rounded-full"
+              className="text-gray-400 hover:text-white  p-2 rounded-full"
             >
-              ✕ Cerrar
+              ✕
             </button>
           </div>
           <div className="flex-1 overflow-hidden">

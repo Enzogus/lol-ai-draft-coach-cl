@@ -55,9 +55,6 @@ export function ChampionDetailModal({ champion, onClose, isLoading, allItems = {
 
                     <div className="absolute bottom-4 left-4 z-20">
                         <h2 className="text-3xl font-bold text-white drop-shadow-md">{champion.championName}</h2>
-                        <span className="text-yellow-400 font-bold bg-black/60 px-2 py-0.5 rounded text-sm border border-yellow-500/30">
-                            Score: {champion.score}
-                        </span>
                     </div>
                 </div>
 

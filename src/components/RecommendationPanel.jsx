@@ -1,19 +1,19 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { useChampions } from '../hooks/useChampions';
 import { getRecommendations } from '../utils/recommender';
-import { generateGeminiRecommendationsLight, generateGeminiChampionDetails } from '../services/gemini';
-import { generateOpenAIRecommendationsLight, generateOpenAIChampionDetails } from '../services/openai';
+import { generateGeminiRecommendationsLight, generateGeminiChampionDetails, generateGeminiCustomAnalysis, generateGeminiSingleReplacement } from '../services/gemini';
+import { generateOpenAIRecommendationsLight, generateOpenAIChampionDetails, generateOpenAICustomAnalysis, generateOpenAISingleReplacement } from '../services/openai';
 import { TeamRadar } from './TeamRadar';
 import { calculateTeamStats } from '../utils/teamStats';
 import { ChampionDetailModal } from './ChampionDetailModal';
 
 export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChange }) {
     const ROLES = [
-        { id: 'Top', label: 'Top', icon: '🛡️' },
-        { id: 'Jungle', label: 'Jungle', icon: '🌲' },
-        { id: 'Mid', label: 'Mid', icon: '🔮' },
-        { id: 'ADC', label: 'ADC', icon: '🏹' },
-        { id: 'Support', label: 'Support', icon: '🤝' },
+        { id: 'Top', label: 'Top', icon: 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-top.png' },
+        { id: 'Jungle', label: 'Jungle', icon: 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-jungle.png' },
+        { id: 'Mid', label: 'Mid', icon: 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-middle.png' },
+        { id: 'ADC', label: 'ADC', icon: 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-bottom.png' },
+        { id: 'Support', label: 'Support', icon: 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-utility.png' },
     ];
     const { champions, items, runes, version } = useChampions();
     // Leer API Keys
@@ -30,6 +30,13 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
     const [selectedOption, setSelectedOption] = useState(null);
     const [detailsLoading, setDetailsLoading] = useState(false);
     const [elapsedTime, setElapsedTime] = useState(0);
+    const [discardedChamps, setDiscardedChamps] = useState([]);
+
+    // Manual Pick Analysis State
+    const [customPick, setCustomPick] = useState("");
+    const [customAnalysis, setCustomAnalysis] = useState(null);
+    const [analysingCustom, setAnalysingCustom] = useState(false);
+    const [replacingChamp, setReplacingChamp] = useState(null);
 
     // Timer logic
     useEffect(() => {
@@ -56,10 +63,8 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
             // 1. Intentar con OpenAI (Prioridad)
             if (openaiKey) {
                 try {
-                    console.log("Recomendación OpenAI Light:", allyTeam, enemyTeam, champions, userRole, AI_CONTEXT_VERSION);
-                    recommendation = await generateOpenAIRecommendationsLight(openaiKey, allyTeam, enemyTeam, champions, userRole, AI_CONTEXT_VERSION);
+                    recommendation = await generateOpenAIRecommendationsLight(openaiKey, allyTeam, enemyTeam, champions, userRole, AI_CONTEXT_VERSION, discardedChamps);
                 } catch (e) {
-                    console.warn("OpenAI Light falló, intentando backup Gemini...", e);
                     errorMsg = `OpenAI Error: ${e.message}`;
                 }
             }
@@ -67,7 +72,7 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
             // 2. Fallback a Gemini si OpenAI falló o no hay key
             if (!recommendation && geminiKey) {
                 try {
-                    recommendation = await generateGeminiRecommendationsLight(geminiKey, allyTeam, enemyTeam, champions, userRole, AI_CONTEXT_VERSION);
+                    recommendation = await generateGeminiRecommendationsLight(geminiKey, allyTeam, enemyTeam, champions, userRole, AI_CONTEXT_VERSION, discardedChamps);
                     // Marcar que fue response de backup si venía de un fallo
                     if (errorMsg) recommendation.modelUsed = "gemini-flash (backup)";
                 } catch (e) {
@@ -82,51 +87,8 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
             // Procesar array de opciones
             // Nota: Tanto OpenAI como Gemini ahora devuelven { options: [...] }
             if (recommendation.options && Array.isArray(recommendation.options)) {
-                // Función helper para normalizar nombres
-                const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, '');
-
-                const processedOptions = recommendation.options.map(opt => {
-                    const targetName = normalize(opt.championName);
-                    // Si la IA nos dio el ID exacto, úsalo para buscar
-                    const riotId = opt.riotId ? normalize(opt.riotId) : null;
-
-                    // Buscar imagen en nuestros datos locales (para el loading art de la lista)
-                    const champData = champions.find(c =>
-                        (riotId && normalize(c.id) === riotId) || // Match exacto por ID dado por IA
-                        normalize(c.name) === targetName ||
-                        normalize(c.id) === targetName ||
-                        c.name.toLowerCase().includes(opt.championName.toLowerCase())
-                    );
-
-                    let finalLoadingImage = null;
-                    let finalSplashImage = null;
-
-                    if (champData) {
-                        finalLoadingImage = champData.imageUrl;
-                        finalSplashImage = champData.splashUrl;
-                    } else {
-                        // Fallback con el ID que nos dio la IA o el nombre limpiado
-                        const guessId = opt.riotId || opt.championName.replace(/[^a-zA-Z0-9]/g, '');
-                        finalLoadingImage = `https://ddragon.leagueoflegends.com/cdn/img/champion/loading/${guessId}_0.jpg`;
-                        finalSplashImage = `https://ddragon.leagueoflegends.com/cdn/img/champion/splash/${guessId}_0.jpg`;
-                    }
-
-                    return {
-                        ...opt,
-                        imageId: champData ? champData.id : null,
-                        imageUrl: finalLoadingImage, // Para la lista (pequeña)
-                        splashUrl: finalSplashImage, // Para el modal (grande) - Construida localmente
-                        // Parsear datos comprimidos (Optimizacion de latencia)
-                        // Inicializar vacío para el modo Light
-                        coreBuild: [],
-                        runes: {},
-                        strategy: null,
-                        winCondition: null
-                    };
-                });
-
+                const processedOptions = recommendation.options.map(opt => processAiOption(opt));
                 setAiResult({ options: processedOptions, modelUsed: recommendation.modelUsed });
-
             } else {
                 throw new Error("Formato de respuesta IA inesperado (falta array options).");
             }
@@ -152,13 +114,13 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
             if (openaiKey) {
                 try {
                     details = await generateOpenAIChampionDetails(openaiKey, allyTeam, enemyTeam, option.championName, AI_CONTEXT_VERSION);
-                } catch (e) { console.warn("OpenAI Details error", e); }
+                } catch (e) { }
             }
             // Fallback Gemini Details
             if (!details && geminiKey) {
                 try {
                     details = await generateGeminiChampionDetails(geminiKey, allyTeam, enemyTeam, option.championName, AI_CONTEXT_VERSION);
-                } catch (e) { console.warn("Gemini Details error", e); }
+                } catch (e) { }
             }
 
             if (details) {
@@ -178,9 +140,104 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
                 setSelectedOption(enhancedOption);
             }
         } catch (error) {
-            console.error("Error cargando detalles profundos:", error);
         } finally {
             setDetailsLoading(false);
+        }
+    };
+
+    const processAiOption = (opt) => {
+        const normalize = (str) => str.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const targetName = normalize(opt.championName);
+        const riotId = opt.riotId ? normalize(opt.riotId) : null;
+
+        const champData = champions.find(c =>
+            (riotId && normalize(c.id) === riotId) ||
+            normalize(c.name) === targetName ||
+            normalize(c.id) === targetName ||
+            c.name.toLowerCase().includes(opt.championName.toLowerCase())
+        );
+
+        let finalLoadingImage = null;
+        let finalSplashImage = null;
+
+        if (champData) {
+            finalLoadingImage = champData.imageUrl;
+            finalSplashImage = champData.splashUrl;
+        } else {
+            const guessId = opt.riotId || opt.championName.replace(/[^a-zA-Z0-9]/g, '');
+            finalLoadingImage = `https://ddragon.leagueoflegends.com/cdn/img/champion/loading/${guessId}_0.jpg`;
+            finalSplashImage = `https://ddragon.leagueoflegends.com/cdn/img/champion/splash/${guessId}_0.jpg`;
+        }
+
+        return {
+            ...opt,
+            imageId: champData ? champData.id : null,
+            imageUrl: finalLoadingImage,
+            splashUrl: finalSplashImage,
+            coreBuild: [],
+            runes: {},
+            strategy: null,
+            winCondition: null
+        };
+    };
+
+    const handleDiscard = async (champName) => {
+        setReplacingChamp(champName);
+        setDiscardedChamps(prev => [...prev, champName]);
+
+        // 1. Filtrar el actual
+        const currentOptions = aiResult?.options || [];
+        const existingNames = currentOptions.map(o => o.championName);
+        // Nota: Mantenemos el filtrado real para el estado final, pero visualmente lo manejaremos con el replacingChamp state
+        const filteredOptions = currentOptions.filter(o => o.championName !== champName);
+        const filteredExistingNames = filteredOptions.map(o => o.championName);
+
+        try {
+            let replacement = null;
+            if (openaiKey) {
+                try {
+                    const result = await generateOpenAISingleReplacement(openaiKey, allyTeam, enemyTeam, userRole, AI_CONTEXT_VERSION, [...discardedChamps, champName], filteredExistingNames);
+                    replacement = result.option;
+                } catch (e) { }
+            }
+
+            if (!replacement && geminiKey) {
+                try {
+                    const result = await generateGeminiSingleReplacement(geminiKey, allyTeam, enemyTeam, userRole, AI_CONTEXT_VERSION, [...discardedChamps, champName], filteredExistingNames);
+                    replacement = result.option;
+                } catch (e) { }
+            }
+
+            if (replacement) {
+                const newOption = processAiOption(replacement);
+                setAiResult(prev => ({
+                    ...prev,
+                    options: [...filteredOptions, newOption]
+                }));
+            }
+        } catch (error) {
+        } finally {
+            setReplacingChamp(null);
+        }
+    };
+
+    const handleCustomAnalysis = async (specificPick) => {
+        const pickToAnalyze = specificPick || customPick;
+        if (!pickToAnalyze.trim()) return;
+
+        setAnalysingCustom(true);
+        setCustomAnalysis(null);
+        try {
+            let result = null;
+            if (openaiKey) {
+                result = await generateOpenAICustomAnalysis(openaiKey, allyTeam, enemyTeam, pickToAnalyze, AI_CONTEXT_VERSION, userRole);
+            } else if (geminiKey) {
+                result = await generateGeminiCustomAnalysis(geminiKey, allyTeam, enemyTeam, pickToAnalyze, AI_CONTEXT_VERSION, userRole);
+            }
+            if (result) setCustomAnalysis(result);
+        } catch (e) {
+        } finally {
+            setAnalysingCustom(false);
         }
     };
 
@@ -191,10 +248,14 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
 
     // Efecto para Auto-Consulta con Debounce
     useEffect(() => {
+        // Reset de descartes cuando cambia el draft
+        setDiscardedChamps([]);
+        setCustomAnalysis(null);
+        setCustomPick("");
+
         // Solo activar si hay un rol seleccionado y al menos un campeón en juego
         if (!userRole || (allyTeam.length === 0 && enemyTeam.length === 0)) return;
 
-        console.log("Detectado cambio en equipos/rol, programando consulta IA...");
         const timer = setTimeout(() => {
             handleAiConsult();
         }, 1500); // 1.5s debounce
@@ -202,21 +263,21 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
         return () => clearTimeout(timer);
     }, [alliesStr, enemiesStr, userRole]);
 
+    // Efecto separado para cuando el usuario descarta un campeón (Refresh inmediato)
+    // Eliminado porque ahora handleDiscard maneja su propia recarga de 1 campeon
+    /*
+    useEffect(() => {
+        if (discardedChamps.length > 0) {
+            handleAiConsult();
+        }
+    }, [discardedChamps]);
+    */
+
     // Calcular recomendaciones algorítmicas clásicas
     const recommendations = useMemo(() => {
         return getRecommendations(champions, allyTeam, enemyTeam);
     }, [champions, allyTeam, enemyTeam]);
 
-    // // Si no tenemos suficientes datos para recomendar, mensaje inicial
-    // if (allyTeam.length === 0 && enemyTeam.length === 0) {
-    //     return (
-    //         <div className="flex flex-col items-center justify-center h-full text-gray-500 p-8 text-center opacity-50">
-    //             <span className="text-4xl mb-4">🧠</span>
-    //             <h3 className="text-xl font-bold mb-2">IA Recomendadora</h3>
-    //             <p>Selecciona campeones aliados y enemigos para ver sugerencias inteligentes.</p>
-    //         </div>
-    //     );
-    // }
 
     return (
         <div className="h-full bg-gray-900 border-l border-r border-gray-700 flex flex-col">
@@ -238,7 +299,7 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
                         <div className="flex flex-col gap-3 mb-3">
                             <div className="flex justify-between items-start">
                                 <h3 className="text-white font-bold text-lg flex items-center gap-2">
-                                    🔮 Coach Gemini AI
+                                    🔮 Coach AI
                                 </h3>
                                 {!aiLoading && !aiResult && (
                                     <button
@@ -261,11 +322,11 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
                                             key={role.id}
                                             onClick={() => onRoleChange(role.id === userRole ? null : role.id)}
                                             className={`p-1.5 rounded-lg transition-all flex-1 flex justify-center items-center ${userRole === role.id
-                                                ? 'bg-purple-500 text-white shadow-lg scale-105 ring-1 ring-purple-300'
-                                                : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'}`}
+                                                ? 'bg-purple-500 shadow-lg scale-110 ring-1 ring-purple-300 z-10'
+                                                : 'text-gray-400 hover:bg-white/5 grayscale opacity-70 hover:opacity-100'}`}
                                             title={role.label}
                                         >
-                                            <span className="text-lg">{role.icon}</span>
+                                            <img src={role.icon} alt={role.label} className={`w-6 h-6 object-contain ${userRole === role.id ? '' : 'brightness-75'}`} />
                                         </button>
                                     ))}
                                 </div>
@@ -308,45 +369,164 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
                                     </div>
                                 )}
 
-                                {aiResult.options.map((option, idx) => (
-                                    <div
-                                        key={idx}
-                                        onClick={() => handleSelectOption(option)}
-                                        className="bg-black/30 rounded-lg p-3 border border-indigo-500/30 hover:bg-black/40 hover:border-indigo-400 transition-all cursor-pointer flex gap-3 group"
-                                    >
-                                        <div className="shrink-0 relative">
-                                            {option.imageUrl ? (
-                                                <img
-                                                    src={option.imageUrl}
-                                                    alt={option.championName}
-                                                    className="w-14 h-14 rounded-full border-2 border-indigo-400 shadow-md group-hover:scale-105 transition-transform"
-                                                />
-                                            ) : (
-                                                <div className="w-14 h-14 rounded-full bg-indigo-800 flex items-center justify-center border-2 border-indigo-400">
-                                                    <span className="text-xl text-white font-bold">{option.championName[0]}</span>
+                                {aiResult.options.map((option, idx) => {
+                                    const isBeingReplaced = replacingChamp === option.championName;
+                                    return (
+                                        <div
+                                            key={idx}
+                                            onClick={() => !isBeingReplaced && handleSelectOption(option)}
+                                            className={`bg-black/30 rounded-lg p-3 border border-indigo-500/30 transition-all cursor-pointer flex gap-3 group relative overflow-hidden ${isBeingReplaced ? 'grayscale opacity-50 cursor-wait' : 'hover:bg-black/40 hover:border-indigo-400'}`}
+                                        >
+                                            {isBeingReplaced && (
+                                                <div className="absolute inset-0 bg-indigo-900/10 animate-pulse pointer-events-none flex items-center justify-center">
+                                                    <span className="text-[10px] font-bold text-white/50 uppercase tracking-widest">Reemplazando...</span>
                                                 </div>
                                             )}
-                                            <div className="absolute -bottom-1 -right-1 bg-yellow-600 text-[10px] text-white font-bold px-1 rounded-full border border-black shadow-sm">
-                                                Tap
+                                            <div className="shrink-0 relative">
+                                                {option.imageUrl ? (
+                                                    <img
+                                                        src={option.imageUrl}
+                                                        alt={option.championName}
+                                                        className={`w-14 h-14 rounded-full border-2 border-indigo-400 shadow-md ${!isBeingReplaced && 'group-hover:scale-105'} transition-transform`}
+                                                    />
+                                                ) : (
+                                                    <div className="w-14 h-14 rounded-full bg-indigo-800 flex items-center justify-center border-2 border-indigo-400">
+                                                        <span className="text-xl text-white font-bold">{option.championName[0]}</span>
+                                                    </div>
+                                                )}
+                                                {!isBeingReplaced && (
+                                                    <div className="absolute -bottom-1 -right-1 bg-yellow-600 text-[10px] text-white font-bold px-1 rounded-full border border-black shadow-sm">
+                                                        Tap
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex justify-between items-start mb-1">
+                                                    <h4 className={`text-white font-bold truncate ${!isBeingReplaced && 'group-hover:text-yellow-400'} transition-colors`}>{option.championName}</h4>
+                                                    <div className="flex items-center gap-2">
+                                                        {!isBeingReplaced && (
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleDiscard(option.championName);
+                                                                }}
+                                                                className="text-gray-500 hover:text-red-400 p-1"
+                                                                title="No me interesa"
+                                                            >
+                                                                ✕
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <p className="text-gray-300 text-xs leading-snug line-clamp-2 opacity-80 group-hover:opacity-100">
+                                                    {option.reason}
+                                                </p>
                                             </div>
                                         </div>
-                                        <div className="flex-1 min-w-0">
-                                            <div className="flex justify-between items-start mb-1">
-                                                <h4 className="text-white font-bold truncate group-hover:text-yellow-400 transition-colors">{option.championName}</h4>
-                                                <span className="text-yellow-400 font-bold text-sm bg-black/40 px-1.5 rounded">{option.score} pts</span>
-                                            </div>
-                                            <p className="text-gray-300 text-xs leading-snug line-clamp-2 opacity-80 group-hover:opacity-100">
-                                                {option.reason}
-                                            </p>
-                                        </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
 
-                                <button onClick={handleAiConsult} className="mt-3 text-xs text-purple-300 hover:text-white underline w-full text-center">
-                                    Re-analizar
+                                <button onClick={handleAiConsult} className="mt-2 text-[10px] text-purple-300 hover:text-white underline w-full text-center opacity-50">
+                                    Refresh Manual
                                 </button>
                             </div>
                         )}
+
+                        {/* Analizador de Pick Manual */}
+                        <div className="mt-4 pt-4 border-t border-white/10 space-y-3 relative">
+                            <h4 className="text-[10px] uppercase font-bold text-purple-200 opacity-70">Evaluación de Pick Manual</h4>
+                            <div className="flex gap-2 relative">
+                                <div className="flex-1 relative">
+                                    <input
+                                        type="text"
+                                        value={customPick}
+                                        onChange={(e) => {
+                                            setCustomPick(e.target.value);
+                                            setCustomAnalysis(null);
+                                        }}
+                                        placeholder="Ej: Briar, Sylas..."
+                                        className="w-full bg-black/40 border border-purple-500/30 rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-purple-500"
+                                    />
+
+                                    {/* Sugerencias Autocomplete */}
+                                    {customPick.length >= 2 && !analysingCustom && !customAnalysis && (
+                                        <div className="absolute bottom-full mb-2 w-full bg-gray-800 border border-gray-700 rounded-lg shadow-2xl max-h-48 overflow-y-auto z-50 custom-scrollbar">
+                                            {champions
+                                                .filter(c => c.name.toLowerCase().includes(customPick.toLowerCase()))
+                                                .slice(0, 8)
+                                                .map(champ => (
+                                                    <div
+                                                        key={champ.id}
+                                                        onClick={() => {
+                                                            setCustomPick(champ.name);
+                                                            handleCustomAnalysis(champ.name);
+                                                        }}
+                                                        className="flex items-center gap-3 p-2 hover:bg-white/5 cursor-pointer transition-colors"
+                                                    >
+                                                        <img src={champ.imageUrl} alt={champ.name} className="w-8 h-8 rounded-full border border-gray-600" />
+                                                        <span className="text-sm text-gray-200">{champ.name}</span>
+                                                    </div>
+                                                ))
+                                            }
+                                        </div>
+                                    )}
+                                </div>
+                                <button
+                                    onClick={handleCustomAnalysis}
+                                    disabled={analysingCustom || !customPick}
+                                    className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-3 py-2 rounded-lg text-sm font-bold transition-all shadow-md active:scale-95"
+                                >
+                                    {analysingCustom ? "..." : "Analizar"}
+                                </button>
+                            </div>
+
+                            {customAnalysis && (
+                                <div className={`p-3 rounded-lg border animate-fade-in ${customAnalysis.isGood ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}`}>
+                                    <div className="flex justify-between items-start mb-2">
+                                        <div className="flex items-center gap-3">
+                                            {/* Icono del Campeón Analizado */}
+                                            {(() => {
+                                                const champ = champions.find(c => c.name.toLowerCase() === (customAnalysis.name?.toLowerCase() || customPick.toLowerCase()));
+                                                return champ ? (
+                                                    <img src={champ.imageUrl} alt={champ.name} className="w-10 h-10 rounded-full border border-white/20 shadow-lg" />
+                                                ) : null;
+                                            })()}
+                                            <div>
+                                                <span className={`text-md font-bold uppercase block ${customAnalysis.isGood ? 'text-green-400' : 'text-red-400'}`}>
+                                                    {customAnalysis.isGood ? '✅ Buen Pick' : '⚠️ No recomendado'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2 pt-1">
+                                            <button onClick={() => setCustomAnalysis(null)} className="text-gray-500 hover:text-white">✕</button>
+                                        </div>
+                                    </div>
+                                    {/* <p className="text-[11px] text-gray-200 leading-tight mb-3">{customAnalysis.reason}</p> */}
+
+                                    {/* Tabla de Pros y Contras */}
+                                    <div className="grid grid-cols-2 gap-2 text-[12px] border-t border-white/5 pt-2">
+                                        <div className="space-y-1">
+                                            <span className="font-bold text-green-400 block mb-1">Pros</span>
+                                            {customAnalysis.pros?.map((pro, i) => (
+                                                <div key={i} className="flex gap-1 items-start text-gray-300">
+                                                    <span className="text-green-500 shrink-0">·</span>
+                                                    <span>{pro}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <div className="space-y-1 border-l border-white/5 pl-2">
+                                            <span className="font-bold text-red-400 block mb-1">Contras</span>
+                                            {customAnalysis.cons?.map((con, i) => (
+                                                <div key={i} className="flex gap-1 items-start text-gray-300">
+                                                    <span className="text-red-500 shrink-0">·</span>
+                                                    <span>{con}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
 
                         {/* Modal de Detalle */}
                         <ChampionDetailModal
@@ -398,7 +578,6 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
                             <div className="flex-1">
                                 <div className="flex justify-between items-start">
                                     <h3 className="text-gray-200 font-bold text-md leading-none">{rec.champion.name}</h3>
-                                    <span className="text-gray-500 font-mono text-xs">Score: {rec.score}</span>
                                 </div>
 
                                 <div className="mt-1 space-y-1">
