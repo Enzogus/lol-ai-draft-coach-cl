@@ -14,8 +14,7 @@ export async function generateOpenAIRecommendationsLight(apiKey, allyTeam, enemy
   const systemPrompt = `
       Actúa como un Coach. Analiza para PARCHE: ${gameVersion || "Más reciente"}.
       CRITERIOS:
-      1. Prioriza campeones Meta (Tier S/A) y con buen matchup.
-      2. Responde RÁPIDO. Solo nombres y razón breve.
+      1. Responde RÁPIDO. Solo nombres y razón breve.
       
       Responde SOLO con un JSON válido:
       {
