@@ -51,7 +51,7 @@ export async function generateGeminiRecommendationsLight(apiKey, allyTeam, enemy
       }
 
       REGLA CRÍTICA DE EXCLUSIÓN: 
-      NO recomiendes bajo ningún concepto a estos campeones: [${excludedChamps.join(", ")}].
+      NO recomiendes bajo ningún concepto a estos campeones (incluye BANEOs y DESCARTES): [${excludedChamps.join(", ")}].
     `;
 
     try {
@@ -168,7 +168,7 @@ export async function generateGeminiSingleReplacement(apiKey, allyTeam, enemyTea
       
       REGLAS:
       1. NO repitas campeones en: [${existing}].
-      2. NO sugieras campeones en: [${excluded}].
+      2. NO sugieras campeones en: [${excluded}] (Bans y descartes).
       3. Responde SOLO con un JSON válido.
       
       Aliados: [${allies}]

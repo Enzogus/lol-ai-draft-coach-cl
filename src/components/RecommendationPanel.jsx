@@ -7,7 +7,7 @@ import { TeamRadar } from './TeamRadar';
 import { calculateTeamStats } from '../utils/teamStats';
 import { ChampionDetailModal } from './ChampionDetailModal';
 
-export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChange }) {
+export function RecommendationPanel({ allyTeam, enemyTeam, allyBans, enemyBans, userRole, onRoleChange }) {
     const ROLES = [
         { id: 'Top', label: 'Top', icon: 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-top.png' },
         { id: 'Jungle', label: 'Jungle', icon: 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-jungle.png' },
@@ -37,7 +37,79 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
     const [customAnalysis, setCustomAnalysis] = useState(null);
     const [analysingCustom, setAnalysingCustom] = useState(false);
     const [replacingChamp, setReplacingChamp] = useState(null);
+    const [liveSync, setLiveSync] = useState(false);
     const [canBeReplaced, setCanBeReplaced] = useState(0);
+
+    // LCU Polling Logic
+    useEffect(() => {
+        let interval;
+        if (liveSync) {
+            interval = setInterval(async () => {
+                try {
+                    let data;
+
+                    // Prioridad 1: Electron IPC (Directo)
+                    if (window.electronAPI) {
+                        data = await window.electronAPI.getLcuDraft();
+                    }
+                    // Prioridad 2: Local HTTP Bridge (Web)
+                    else {
+                        const response = await fetch('http://localhost:3500/draft');
+                        if (response.ok) {
+                            data = await response.json();
+                        }
+                    }
+
+                    if (data && data.myTeam && data.theirTeam && data.actions) {
+                        // Mapear IDs de campeones de LCU a objetos del Coach
+                        const mapTeam = (lcuTeam) => {
+                            return lcuTeam
+                                .filter(p => p.championId !== 0)
+                                .map(p => {
+                                    const champ = champions.find(c => parseInt(c.key) === p.championId);
+                                    return champ ? { id: champ.id, name: champ.name, imageUrl: champ.imageUrl, tags: champ.tags } : null;
+                                })
+                                .filter(Boolean);
+                        };
+
+                        const allActions = data.actions.flat();
+                        const mapBans = (isAlly) => {
+                            const uniqueBans = new Set();
+                            return allActions
+                                .filter(a => a.type === 'ban' && a.isAllyAction === isAlly && a.championId !== 0)
+                                .map(a => {
+                                    if (uniqueBans.has(a.championId)) return null;
+                                    uniqueBans.add(a.championId);
+                                    const champ = champions.find(c => parseInt(c.key) === a.championId);
+                                    return champ ? { id: champ.id, name: champ.name, imageUrl: champ.imageUrl, tags: champ.tags } : null;
+                                })
+                                .filter(Boolean);
+                        };
+
+                        const newAllyTeam = mapTeam(data.myTeam);
+                        const newEnemyTeam = mapTeam(data.theirTeam);
+                        const newAllyBans = mapBans(true);
+                        const newEnemyBans = mapBans(false);
+
+                        // Solo actualizar si hay cambios para evitar bucles de renderizado (incluyendo bans)
+                        const allyStr = JSON.stringify(newAllyTeam.map(c => c.id));
+                        const currentAllyStr = JSON.stringify(allyTeam.map(c => c.id));
+                        const enemyStr = JSON.stringify(newEnemyTeam.map(c => c.id));
+                        const currentEnemyStr = JSON.stringify(enemyTeam.map(c => c.id));
+                        const bansStr = JSON.stringify([...newAllyBans, ...newEnemyBans].map(c => c.id));
+                        const currentBansStr = JSON.stringify([...allyBans, ...enemyBans].map(c => c.id));
+
+                        if (allyStr !== currentAllyStr || enemyStr !== currentEnemyStr || bansStr !== currentBansStr) {
+                            if (window._syncTeams) window._syncTeams(newAllyTeam, newEnemyTeam, newAllyBans, newEnemyBans);
+                        }
+                    }
+                } catch (e) {
+                    // Fail silently or handle error
+                }
+            }, 2000);
+        }
+        return () => clearInterval(interval);
+    }, [liveSync, champions, allyTeam, enemyTeam]);
 
     // Timer logic
     useEffect(() => {
@@ -65,7 +137,10 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
             // 1. Intentar con OpenAI (Prioridad)
             if (openaiKey) {
                 try {
-                    recommendation = await generateOpenAIRecommendationsLight(openaiKey, allyTeam, enemyTeam, champions, userRole, AI_CONTEXT_VERSION, discardedChamps);
+                    recommendation = await generateOpenAIRecommendationsLight(
+                        openaiKey, allyTeam, enemyTeam, champions, userRole, AI_CONTEXT_VERSION,
+                        [...discardedChamps, ...allyBans.map(b => b.name), ...enemyBans.map(b => b.name)]
+                    );
                 } catch (e) {
                     errorMsg = `OpenAI Error: ${e.message}`;
                 }
@@ -74,7 +149,10 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
             // 2. Fallback a Gemini si OpenAI falló o no hay key
             if (!recommendation && geminiKey) {
                 try {
-                    recommendation = await generateGeminiRecommendationsLight(geminiKey, allyTeam, enemyTeam, champions, userRole, AI_CONTEXT_VERSION, discardedChamps);
+                    recommendation = await generateGeminiRecommendationsLight(
+                        geminiKey, allyTeam, enemyTeam, champions, userRole, AI_CONTEXT_VERSION,
+                        [...discardedChamps, ...allyBans.map(b => b.name), ...enemyBans.map(b => b.name)]
+                    );
                     // Marcar que fue response de backup si venía de un fallo
                     if (errorMsg) recommendation.modelUsed = "gemini-flash (backup)";
                 } catch (e) {
@@ -198,14 +276,22 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
             let replacement = null;
             if (openaiKey) {
                 try {
-                    const result = await generateOpenAISingleReplacement(openaiKey, allyTeam, enemyTeam, userRole, AI_CONTEXT_VERSION, [...discardedChamps, champName], filteredExistingNames);
+                    const result = await generateOpenAISingleReplacement(
+                        openaiKey, allyTeam, enemyTeam, userRole, AI_CONTEXT_VERSION,
+                        [...discardedChamps, champName, ...allyBans.map(b => b.name), ...enemyBans.map(b => b.name)],
+                        filteredExistingNames
+                    );
                     replacement = result.option;
                 } catch (e) { }
             }
 
             if (!replacement && geminiKey) {
                 try {
-                    const result = await generateGeminiSingleReplacement(geminiKey, allyTeam, enemyTeam, userRole, AI_CONTEXT_VERSION, [...discardedChamps, champName], filteredExistingNames);
+                    const result = await generateGeminiSingleReplacement(
+                        geminiKey, allyTeam, enemyTeam, userRole, AI_CONTEXT_VERSION,
+                        [...discardedChamps, champName, ...allyBans.map(b => b.name), ...enemyBans.map(b => b.name)],
+                        filteredExistingNames
+                    );
                     replacement = result.option;
                 } catch (e) { }
             }
@@ -247,11 +333,13 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
     // Serializar IDs para detectar cambios reales en el contenido de los arreglos
     const alliesStr = useMemo(() => allyTeam.map(c => c.id).sort().join(','), [allyTeam]);
     const enemiesStr = useMemo(() => enemyTeam.map(c => c.id).sort().join(','), [enemyTeam]);
+    const allyBansStr = useMemo(() => allyBans.map(c => c.id).sort().join(','), [allyBans]);
+    const enemyBansStr = useMemo(() => enemyBans.map(c => c.id).sort().join(','), [enemyBans]);
 
     // Efecto para Auto-Consulta con Debounce
     useEffect(() => {
-        // Reset de descartes cuando cambia el draft
-        setDiscardedChamps([]);
+        // Reset de descartes cuando cambia el draft (solo si cambian picks, no bans)
+        // Pero queremos refrescar si cambian los bans.
         setCustomAnalysis(null);
         setCustomPick("");
 
@@ -263,7 +351,7 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
         }, 1500); // 1.5s debounce
 
         return () => clearTimeout(timer);
-    }, [alliesStr, enemiesStr, userRole]);
+    }, [alliesStr, enemiesStr, allyBansStr, enemyBansStr, userRole]);
 
     // Efecto separado para cuando el usuario descarta un campeón (Refresh inmediato)
     // Eliminado porque ahora handleDiscard maneja su propia recarga de 1 campeon
@@ -299,19 +387,47 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
                 <div className="mb-6 p-4 rounded-xl bg-gradient-to-br from-indigo-900 to-purple-900 border border-indigo-500 shadow-lg relative overflow-hidden">
                     <div className="relative z-10">
                         <div className="flex flex-col gap-3 mb-3">
-                            <div className="flex justify-between items-start">
+                            <div className="flex justify-between items-center">
                                 <h3 className="text-white font-bold text-lg flex items-center gap-2">
                                     🔮 Coach AI
                                 </h3>
-                                {!aiLoading && !aiResult && (
+                                <div className="flex items-center gap-2">
+                                    <span className={`text-[10px] font-bold uppercase transition-colors ${liveSync ? 'text-green-400' : 'text-gray-400'}`}>
+                                        {liveSync ? 'Live Sync ON' : 'Live Sync OFF'}
+                                    </span>
+                                    <button
+                                        onClick={() => setLiveSync(!liveSync)}
+                                        className={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${liveSync ? 'bg-green-600' : 'bg-gray-700'}`}
+                                    >
+                                        <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${liveSync ? 'translate-x-5' : 'translate-x-0'}`} />
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Enlace de descarga Bridge */}
+                            {!window.electronAPI && !liveSync && (
+                                <div className="flex justify-end -mt-1 mb-2">
+                                    <a
+                                        href="/lcu-bridge.exe"
+                                        download
+                                        className="text-[10px] text-purple-400 hover:text-purple-300 underline flex items-center gap-1 bg-purple-500/10 px-2 py-0.5 rounded-md border border-purple-500/20 transition-all shadow-sm active:scale-95 whitespace-nowrap"
+                                        title="Descarga esto para que el Coach detecte tus picks automáticamente"
+                                    >
+                                        📥 Descargar Bridge (Windows)
+                                    </a>
+                                </div>
+                            )}
+
+                            {!aiLoading && !aiResult && !liveSync && (
+                                <div className="flex justify-center mt-2">
                                     <button
                                         onClick={handleAiConsult}
                                         className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 rounded-full text-sm font-bold transition-all shadow-lg hover:shadow-purple-500/50"
                                     >
                                         Consultar
                                     </button>
-                                )}
-                            </div>
+                                </div>
+                            )}
                             <h4 className="text-white text-lg flex items-center justify-center gap-2">
                                 Selecciona tu rol
                             </h4>
@@ -596,6 +712,6 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
                     </div>
                 ))}
             </div>
-        </div>
+        </div >
     );
 }

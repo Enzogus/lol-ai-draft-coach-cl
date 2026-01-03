@@ -1,16 +1,24 @@
 {
-  "name": "testrepo",
+  "name": "ai-draft-coach",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron:dev": "electron .",
+    "electron:build": "npm run build && electron-builder",
+    "build:bridge": "pkg lcu-bridge.js --targets node18-win-x64 --output public/lcu-bridge.exe"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "axios": "^1.13.2",
+    "cors": "^2.8.5",
+    "express": "^5.2.1",
+    "node-fetch": "^3.3.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
@@ -20,15 +28,32 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
     "autoprefixer": "^10.4.22",
+    "electron": "^39.2.7",
+    "electron-builder": "^26.0.12",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
+    "pkg": "^5.8.1",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
     "vite": "npm:rolldown-vite@7.2.5"
   },
-  "overrides": {
-    "vite": "npm:rolldown-vite@7.2.5"
+  "build": {
+    "appId": "com.aidraftcoach.app",
+    "productName": "AI Draft Coach",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "public/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "public/icon.png"
+    }
   }
 }

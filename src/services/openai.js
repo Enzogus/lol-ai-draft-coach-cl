@@ -34,7 +34,7 @@ export async function generateOpenAIRecommendationsLight(apiKey, allyTeam, enemy
       }
 
       REGLA CRÍTICA DE EXCLUSIÓN: 
-      NO recomiendes BAJO NINGUNA CIRCUNSTANCIA a estos campeones: [${excludedChamps.join(", ")}].
+      NO recomiendes BAJO NINGUNA CIRCUNSTANCIA a estos campeones (Bans y Descartes): [${excludedChamps.join(", ")}].
     `;
 
   const userPrompt = `
@@ -183,7 +183,7 @@ export async function generateOpenAISingleReplacement(apiKey, allyTeam, enemyTea
       
       REGLAS:
       1. NO repitas campeones que ya están sugeridos: [${existing}].
-      2. NO sugieras campeones descartados: [${excluded}].
+      2. NO sugieras campeones baneados o descartados: [${excluded}].
       3. Asegúrate de que este nuevo pick aporte un arquetipo DISTINTO a los ya sugeridos si es posible.
       
       Responde SOLO con un JSON válido:

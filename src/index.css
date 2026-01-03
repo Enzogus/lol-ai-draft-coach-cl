@@ -2,6 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Estilos para Electron Drag */
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
 @layer utilities {
   .custom-scrollbar::-webkit-scrollbar {
     width: 8px;
