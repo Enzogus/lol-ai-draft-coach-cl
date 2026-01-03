@@ -37,6 +37,7 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
     const [customAnalysis, setCustomAnalysis] = useState(null);
     const [analysingCustom, setAnalysingCustom] = useState(false);
     const [replacingChamp, setReplacingChamp] = useState(null);
+    const [canBeReplaced, setCanBeReplaced] = useState(0);
 
     // Timer logic
     useEffect(() => {
@@ -52,6 +53,7 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
     }, [aiLoading]);
 
     const handleAiConsult = async () => {
+        setCanBeReplaced(0);
         setAiLoading(true);
         setAiError(null);
         setAiResult(null);
@@ -404,14 +406,16 @@ export function RecommendationPanel({ allyTeam, enemyTeam, userRole, onRoleChang
                                                 <div className="flex justify-between items-start mb-1">
                                                     <h4 className={`text-white font-bold truncate ${!isBeingReplaced && 'group-hover:text-yellow-400'} transition-colors`}>{option.championName}</h4>
                                                     <div className="flex items-center gap-2">
-                                                        {!isBeingReplaced && (
+                                                        {(!isBeingReplaced && canBeReplaced < 4) && (
                                                             <button
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
                                                                     handleDiscard(option.championName);
+                                                                    setCanBeReplaced(canBeReplaced + 1);
                                                                 }}
                                                                 className="text-gray-500 hover:text-red-400 p-1"
                                                                 title="No me interesa"
+                                                                disabled={canBeReplaced >= 4}
                                                             >
                                                                 ✕
                                                             </button>

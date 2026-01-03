@@ -35,7 +35,7 @@ export default function App() {
             </h2>
             <button
               onClick={() => setShowMobileRecs(false)}
-              className="text-gray-400 hover:text-white  p-2 rounded-full"
+              className="text-gray-400 hover:text-white p-2 rounded-full"
             >
               ✕
             </button>
