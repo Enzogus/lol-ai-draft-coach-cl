@@ -3,6 +3,8 @@ import { useChampions } from '../hooks/useChampions';
 import { getRecommendations } from '../utils/recommender';
 import { generateGeminiRecommendationsLight, generateGeminiChampionDetails, generateGeminiCustomAnalysis, generateGeminiSingleReplacement } from '../services/gemini';
 import { generateOpenAIRecommendationsLight, generateOpenAIChampionDetails, generateOpenAICustomAnalysis, generateOpenAISingleReplacement } from '../services/openai';
+import { generateGroqChampionDetails, generateGroqRecommendationsLight } from '../services/groq';
+import { getChallengerBuild } from '../services/riot';
 import { TeamRadar } from './TeamRadar';
 import { calculateTeamStats } from '../utils/teamStats';
 import { ChampionDetailModal } from './ChampionDetailModal';
@@ -15,10 +17,12 @@ export function RecommendationPanel({ allyTeam, enemyTeam, allyBans, enemyBans, 
         { id: 'ADC', label: 'ADC', icon: 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-bottom.png' },
         { id: 'Support', label: 'Support', icon: 'https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-utility.png' },
     ];
-    const { champions, items, runes, version } = useChampions();
+    const { champions, items, itemsById, runes, runesById, version } = useChampions();
     // Leer API Keys
     const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
     const openaiKey = import.meta.env.VITE_OPENAI_API_KEY;
+    const groqKey = import.meta.env.VITE_GROQ_API_KEY;
+    const riotKey = import.meta.env.VITE_RIOT_API_KEY;
 
     // Versión manual para la IA (Solución a defase API Riot vs Cliente Live)
     const AI_CONTEXT_VERSION = "25.24";
@@ -39,6 +43,8 @@ export function RecommendationPanel({ allyTeam, enemyTeam, allyBans, enemyBans, 
     const [replacingChamp, setReplacingChamp] = useState(null);
     const [liveSync, setLiveSync] = useState(false);
     const [canBeReplaced, setCanBeReplaced] = useState(0);
+
+    const [isRefreshingBuild, setIsRefreshingBuild] = useState(false);
 
     // LCU Polling Logic
     useEffect(() => {
@@ -133,16 +139,28 @@ export function RecommendationPanel({ allyTeam, enemyTeam, allyBans, enemyBans, 
         try {
             let recommendation = null;
             let errorMsg = null;
+            console.log("User Role:", userRole);
+            // 1. Intentar con Groq (Prioridad)
+            if (groqKey) {
+                try {
+                    recommendation = await generateGroqRecommendationsLight(
+                        groqKey, allyTeam, enemyTeam, champions, userRole, AI_CONTEXT_VERSION,
+                        [...discardedChamps, ...allyBans.map(b => b.name), ...enemyBans.map(b => b.name)]
+                    );
+                } catch (e) {
+                    errorMsg = `Groq Error: ${e.message}`;
+                }
+            }
 
-            // 1. Intentar con OpenAI (Prioridad)
-            if (openaiKey) {
+            // 2. Fallback a OpenAI (Si Groq falla o no hay key)
+            if (!recommendation && openaiKey) {
                 try {
                     recommendation = await generateOpenAIRecommendationsLight(
                         openaiKey, allyTeam, enemyTeam, champions, userRole, AI_CONTEXT_VERSION,
                         [...discardedChamps, ...allyBans.map(b => b.name), ...enemyBans.map(b => b.name)]
                     );
                 } catch (e) {
-                    errorMsg = `OpenAI Error: ${e.message}`;
+                    errorMsg = errorMsg ? `${errorMsg} | OpenAI Error: ${e.message}` : `OpenAI Error: ${e.message}`;
                 }
             }
 
@@ -190,26 +208,59 @@ export function RecommendationPanel({ allyTeam, enemyTeam, allyBans, enemyBans, 
         setDetailsLoading(true);
         try {
             let details = null;
-            // Intentar OpenAI Details
-            if (openaiKey) {
-                try {
-                    details = await generateOpenAIChampionDetails(openaiKey, allyTeam, enemyTeam, option.championName, AI_CONTEXT_VERSION);
-                } catch (e) { }
-            }
-            // Fallback Gemini Details
-            if (!details && geminiKey) {
-                try {
-                    details = await generateGeminiChampionDetails(geminiKey, allyTeam, enemyTeam, option.championName, AI_CONTEXT_VERSION);
-                } catch (e) { }
-            }
+            // Solo pasar nombres de items que existen para evitar alucinaciones
+            const validItemNames = Object.values(items).map(i => i.name).filter(Boolean);
 
-            if (details) {
+            const aiDetailsPromise = (async () => {
+                // 1. Groq (Ultra Fast - Prioridad Absoluta)
+                if (groqKey) {
+                    try {
+                        return await generateGroqChampionDetails(groqKey, allyTeam, enemyTeam, option.championName, AI_CONTEXT_VERSION, validItemNames);
+                    } catch (e) {
+                        console.warn("Groq Falló, intentando OpenAI...", e);
+                    }
+                }
+
+                // 2. OpenAI
+                if (openaiKey) {
+                    try {
+                        return await generateOpenAIChampionDetails(openaiKey, allyTeam, enemyTeam, option.championName, AI_CONTEXT_VERSION, validItemNames);
+                    } catch (e) { }
+                }
+
+                // 3. Gemini
+                if (geminiKey) {
+                    try {
+                        return await generateGeminiChampionDetails(geminiKey, allyTeam, enemyTeam, option.championName, AI_CONTEXT_VERSION, validItemNames);
+                    } catch (e) { }
+                }
+                return null;
+            })();
+
+            const challengerBuildPromise = (async () => {
+                if (riotKey && option.imageId) {
+                    try {
+                        const champ = champions.find(c => c.id === option.imageId);
+                        return await getChallengerBuild(riotKey, option.championName, champ?.key, userRole);
+                    } catch (e) {
+                        console.error("Riot API Error:", e);
+                        return null;
+                    }
+                }
+                return null;
+            })();
+
+            const [detailsResult, challengerBuild] = await Promise.all([aiDetailsPromise, challengerBuildPromise]);
+            details = detailsResult;
+
+            if (details || challengerBuild) {
                 const enhancedOption = {
                     ...option,
-                    coreBuild: typeof details.build === 'string' ? details.build.split(',').map(s => s.trim()) : [],
-                    runes: typeof details.runes === 'string' ? { primary: details.runes.split('+')[0]?.trim(), secondary: details.runes.split('+')[1]?.trim() } : (details.runes || {}),
-                    strategy: details.tactics,
-                    winCondition: "Estrategia Completa"
+                    coreBuild: details ? (typeof details.build === 'string' ? details.build.split(',').map(s => s.trim()) : []) : [],
+                    runes: details ? (typeof details.runes === 'string' ? { primary: details.runes.split('+')[0]?.trim(), secondary: details.runes.split('+')[1]?.trim() } : (details.runes || {})) : {},
+                    strategy: details ? details.tactics : null,
+                    winCondition: details ? "Estrategia Completa" : null,
+                    challengerBuild: challengerBuild || null
                 };
 
                 // Actualizar estado general y el seleccionado
@@ -369,6 +420,31 @@ export function RecommendationPanel({ allyTeam, enemyTeam, allyBans, enemyBans, 
     }, [champions, allyTeam, enemyTeam]);
 
 
+    const handleRefreshBuild = async (champion) => {
+        if (!riotKey || !champion) return;
+
+        try {
+            setIsRefreshingBuild(true);
+            const champData = champions.find(c => c.id === champion.imageId);
+            // Mostrar loading parcial si se desea, por ahora es optimista
+
+            const newBuild = await getChallengerBuild(riotKey, champion.championName, champData?.key, userRole);
+
+            if (newBuild) {
+                const refreshedOption = { ...champion, challengerBuild: newBuild };
+                setAiResult(prev => ({
+                    ...prev,
+                    options: prev.options.map(o => o.championName === champion.championName ? refreshedOption : o)
+                }));
+                setSelectedOption(refreshedOption);
+            }
+        } catch (e) {
+            console.error("Error refreshing build:", e);
+        } finally {
+            setIsRefreshingBuild(false);
+        }
+    };
+
     return (
         <div className="h-full bg-gray-900 border-l border-r border-gray-700 flex flex-col">
             <div className="p-4 border-b border-gray-700 bg-gray-800 flex justify-between items-center">
@@ -386,25 +462,39 @@ export function RecommendationPanel({ allyTeam, enemyTeam, allyBans, enemyBans, 
                 {/* Sección IA */}
                 <div className="mb-6 p-4 rounded-xl bg-gradient-to-br from-indigo-900 to-purple-900 border border-indigo-500 shadow-lg relative overflow-hidden">
                     <div className="relative z-10">
-                        <div className="flex flex-col gap-3 mb-3">
+                        <div className="flex flex-col gap-3">
                             <div className="flex justify-between items-center">
-                                <h3 className="text-white font-bold text-lg flex items-center gap-2">
+                                <h3 className="text-white font-bold text-lg flex items-center">
                                     🔮 Coach AI
                                 </h3>
-                                <div className="flex items-center gap-2">
-                                    <span className={`text-[10px] font-bold uppercase transition-colors ${liveSync ? 'text-green-400' : 'text-gray-400'}`}>
-                                        {liveSync ? 'Live Sync ON' : 'Live Sync OFF'}
-                                    </span>
-                                    <button
-                                        onClick={() => setLiveSync(!liveSync)}
-                                        className={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${liveSync ? 'bg-green-600' : 'bg-gray-700'}`}
-                                    >
-                                        <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${liveSync ? 'translate-x-5' : 'translate-x-0'}`} />
-                                    </button>
-                                </div>
+                                {window.electronAPI && (
+                                    <div className="flex items-center gap-2">
+                                        <span className={`text-[10px] font-bold uppercase transition-colors ${liveSync ? 'text-green-400' : 'text-gray-400'}`}>
+                                            {liveSync ? 'Live Sync ON' : 'Live Sync OFF'}
+                                        </span>
+                                        <button
+                                            onClick={() => setLiveSync(!liveSync)}
+                                            className={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${liveSync ? 'bg-green-600' : 'bg-gray-700'}`}
+                                        >
+                                            <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${liveSync ? 'translate-x-5' : 'translate-x-0'}`} />
+                                        </button>
+                                    </div>
+                                )}
+                                {!aiLoading && !aiResult && !liveSync && (
+                                    <div className="flex justify-end">
+                                        <button
+                                            onClick={handleAiConsult}
+                                            className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 rounded-full text-sm font-bold transition-all shadow-lg hover:shadow-purple-500/50"
+                                        >
+                                            Consultar
+                                        </button>
+                                    </div>
+                                )}
+
                             </div>
 
                             {/* Enlace de descarga Bridge */}
+                            {/* 
                             {!window.electronAPI && !liveSync && (
                                 <div className="flex justify-end -mt-1 mb-2">
                                     <a
@@ -417,17 +507,9 @@ export function RecommendationPanel({ allyTeam, enemyTeam, allyBans, enemyBans, 
                                     </a>
                                 </div>
                             )}
+                            */}
 
-                            {!aiLoading && !aiResult && !liveSync && (
-                                <div className="flex justify-center mt-2">
-                                    <button
-                                        onClick={handleAiConsult}
-                                        className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 rounded-full text-sm font-bold transition-all shadow-lg hover:shadow-purple-500/50"
-                                    >
-                                        Consultar
-                                    </button>
-                                </div>
-                            )}
+
                             <h4 className="text-white text-lg flex items-center justify-center gap-2">
                                 Selecciona tu rol
                             </h4>
@@ -654,7 +736,11 @@ export function RecommendationPanel({ allyTeam, enemyTeam, allyBans, enemyBans, 
                             onClose={() => setSelectedOption(null)}
                             isLoading={detailsLoading}
                             allItems={items}
+                            allItemsById={itemsById}
                             allRunes={runes}
+                            allRunesById={runesById}
+                            onRefreshBuild={() => handleRefreshBuild(selectedOption)}
+                            isRefreshingBuild={isRefreshingBuild}
                         />
 
                         {/* Background decoration */}

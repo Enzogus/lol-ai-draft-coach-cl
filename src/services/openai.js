@@ -67,7 +67,7 @@ export async function generateOpenAIRecommendationsLight(apiKey, allyTeam, enemy
   }
 }
 
-export async function generateOpenAIChampionDetails(apiKey, allyTeam, enemyTeam, championName, gameVersion) {
+export async function generateOpenAIChampionDetails(apiKey, allyTeam, enemyTeam, championName, gameVersion, validItems = []) {
   if (!apiKey) throw new Error("OpenAI API Key no encontrada");
 
   const allies = allyTeam.map(c => c.name).join(", ");
@@ -80,6 +80,7 @@ export async function generateOpenAIChampionDetails(apiKey, allyTeam, enemyTeam,
       REGLAS PARA ITEMS Y RUNAS:
       1. Usa los NOMBRES OFICIALES EN INGLÉS No los traduzcas.
       2. No recomiendes items eliminados (ej: Míticos antiguos). Solo items vigentes en el parche ${gameVersion}.
+      3. REGLA ESTRICTA: SOLO puedes recomendar items que estén en esta lista: [${validItems.join(", ")}]. Bajo ningún concepto menciones items fuera de ella.
       
       Output JSON:
       {

@@ -70,7 +70,7 @@ export async function generateGeminiRecommendationsLight(apiKey, allyTeam, enemy
     }
 }
 
-export async function generateGeminiChampionDetails(apiKey, allyTeam, enemyTeam, championName, gameVersion) {
+export async function generateGeminiChampionDetails(apiKey, allyTeam, enemyTeam, championName, gameVersion, validItems = []) {
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
 
@@ -87,6 +87,7 @@ export async function generateGeminiChampionDetails(apiKey, allyTeam, enemyTeam,
       REGLAS PARA ITEMS Y RUNAS:
       1. Usa los NOMBRES OFICIALES EN INGLÉS (ej: 'Infinity Edge', 'Conqueror'). No los traduzcas.
       2. No recomiendes items eliminados. Solo items vigentes en el parche ${gameVersion}.
+      3. REGLA ESTRICTA: SOLO puedes recomendar items que existan en esta lista: [${validItems.join(", ")}]. Si un objeto no está aquí, NO lo menciones.
       
       Output JSON:
       {

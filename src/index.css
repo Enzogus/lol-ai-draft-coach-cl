@@ -45,6 +45,40 @@
     animation: fadeIn 0.3s ease-out forwards;
   }
 
+  @keyframes softPulse {
+
+    0%,
+    100% {
+      transform: scale(1);
+    }
+
+    50% {
+      transform: scale(1.01);
+    }
+  }
+
+  .animate-soft-pulse {
+    animation: softPulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulseGlow {
+
+    0%,
+    100% {
+      border-color: rgba(202, 138, 4, 0.4);
+      box-shadow: 0 0 15px rgba(202, 138, 4, 0.2);
+    }
+
+    50% {
+      border-color: rgba(202, 138, 4, 0.9);
+      box-shadow: 0 0 30px rgba(202, 138, 4, 0.5);
+    }
+  }
+
+  .animate-pulse-glow {
+    animation: pulseGlow 2s ease-in-out infinite;
+  }
+
   @keyframes rotateY {
     from {
       transform: perspective(1000px) rotateY(0deg);

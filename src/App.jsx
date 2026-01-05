@@ -3,6 +3,7 @@ import { ChampionSelector } from './components/ChampionSelector';
 import { RecommendationPanel } from './components/RecommendationPanel';
 import { BanSelector } from './components/BanSelector';
 import TitleBar from './components/TitleBar';
+import pkg from '../package.json';
 
 export default function App() {
   const [allyTeam, setAllyTeam] = useState([]);
@@ -141,6 +142,14 @@ export default function App() {
           </div>
         )}
       </div>
+      {/* Footer Version - Solo en Desktop */}
+      {window.electronAPI && (
+        <div className="bg-black/90 border-t border-gray-800 py-0.1 px-4 text-right select-none drag-region">
+          <span className="text-[10px] text-gray-600 font-mono hover:text-gray-400 transition-colors cursor-default">
+            v{pkg.version}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

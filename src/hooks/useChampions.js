@@ -6,7 +6,9 @@ const LANGUAGE = 'es_ES';
 export function useChampions() {
     const [champions, setChampions] = useState([]);
     const [items, setItems] = useState({});
+    const [itemsById, setItemsById] = useState({});
     const [runes, setRunes] = useState([]);
+    const [runesById, setRunesById] = useState({});
     const [version, setVersion] = useState('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -44,33 +46,66 @@ export function useChampions() {
                 }));
 
                 // 4. Procesar Items para búsqueda rápida por nombre
-                // Data Dragon Item names are unique keys technically, but we use 'name' property
+                const isNormalStoreItemSR = (item) => {
+                    const purchasable = item?.gold?.purchasable === true;
+                    // inStore puede no existir, si falta se trata como true
+                    const inStore = item?.inStore !== false;
+                    const notHidden = item?.hideFromAll !== true;
+                    const isSR = item?.maps?.["11"] === true;
+                    const notChampionLocked = !item?.requiredChampion && !item?.requiredAlly;
+                    const notHtmlName = typeof item?.name === "string" && !/[<>]/.test(item.name);
+
+                    return purchasable && inStore && notHidden && isSR && notChampionLocked && notHtmlName;
+                };
+
                 const processedItems = {};
+                const processedItemsById = {};
                 Object.entries(itemsData.data).forEach(([id, item]) => {
-                    processedItems[item.name.toLowerCase()] = {
-                        id,
-                        name: item.name,
-                        image: `https://ddragon.leagueoflegends.com/cdn/${latestVersion}/img/item/${id}.png`
-                    };
+                    if (isNormalStoreItemSR(item)) {
+                        const itemData = {
+                            id,
+                            name: item.name,
+                            image: `https://ddragon.leagueoflegends.com/cdn/${latestVersion}/img/item/${id}.png`
+                        };
+                        processedItems[item.name.toLowerCase()] = itemData;
+                        processedItemsById[id] = itemData;
+                    }
                 });
 
-                // 5. Procesar Runas (Flattening para búsqueda por nombre)
+                // 5. Procesar Runas (Flattening para búsqueda por nombre + ID)
                 const processedRunes = [];
+                const processedRunesById = {};
                 runesData.forEach(tree => {
+                    // Mapear la RAMA (Style) - Ej: 8000 para Precisión
+                    const treeIcon = tree.icon.startsWith('/') ? tree.icon.substring(1) : tree.icon;
+                    const treeData = {
+                        id: tree.id,
+                        name: tree.name,
+                        icon: `https://ddragon.leagueoflegends.com/cdn/img/${treeIcon}`
+                    };
+                    processedRunesById[tree.id] = treeData;
+                    processedRunesById[String(tree.id)] = treeData;
+
                     tree.slots.forEach(slot => {
                         slot.runes.forEach(rune => {
-                            processedRunes.push({
+                            const runeIcon = rune.icon.startsWith('/') ? rune.icon.substring(1) : rune.icon;
+                            const runeData = {
                                 id: rune.id,
                                 name: rune.name,
-                                icon: `https://ddragon.leagueoflegends.com/cdn/img/${rune.icon}`
-                            });
+                                icon: `https://ddragon.leagueoflegends.com/cdn/img/${runeIcon}`
+                            };
+                            processedRunes.push(runeData);
+                            processedRunesById[rune.id] = runeData;
+                            processedRunesById[String(rune.id)] = runeData;
                         });
                     });
                 });
 
                 setChampions(championsArray);
                 setItems(processedItems);
+                setItemsById(processedItemsById);
                 setRunes(processedRunes);
+                setRunesById(processedRunesById);
                 setLoading(false);
             } catch (err) {
                 setError(err.message);
@@ -81,5 +116,5 @@ export function useChampions() {
         fetchData();
     }, []);
 
-    return { champions, items, runes, version, loading, error };
+    return { champions, items, itemsById, runes, runesById, version, loading, error };
 }
